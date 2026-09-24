@@ -12,7 +12,13 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const toolbindPkg = protogen.GoImportPath("github.com/garm-ai/garm/contracts/toolbind")
+// toolbindPkg is where a generated binding registers itself.
+//
+// It points at the tool runtime's repository, not this one. Registration is
+// something a TOOL SERVICE does, so the seam lives on the tool side — and
+// this is an emitted import path rather than a dependency of the generator,
+// so naming a package in another repository costs nothing here.
+const toolbindPkg = protogen.GoImportPath("github.com/garm-ai/tool-go/toolbind")
 
 // EmitMicro writes the tool-side binding for every tool declared across
 // files sharing one Go package: one Handler interface per service, one

@@ -7,21 +7,28 @@ import (
 	"testing"
 )
 
-// TestContractsDependencyGraphStaysThin asserts the contracts module does not
-// pull garm's server dependencies into a tool author's build (spec §1.2).
+// TestContractsDependencyGraphStaysThin asserts that importing the generated
+// contracts does not drag anything else in.
 //
-// A tool repo depends on contracts + garmtool and nothing else. If garm's
-// graph leaks in, a small Go service starts compiling an embedded NATS
-// server, DuckDB and minio — and, worse, becomes able to import the package
-// that enforces the chain.
+// This used to be a MODULE boundary: contracts/ carried its own go.mod so a
+// tool service could not inherit garm's graph. That justification expired
+// when the repositories split — the enforcing package now lives in garmd, a
+// different repository, which a tool service cannot reach however the modules
+// are cut. Keeping a second module only reintroduced two version numbers that
+// have to agree, which is the thing bundling the generator with the
+// annotations was meant to remove.
+//
+// The PACKAGE property still matters and is what this now checks: whatever a
+// tool author imports to get message types must not reach the plan compiler
+// or anything heavy.
 func TestContractsDependencyGraphStaysThin(t *testing.T) {
 	forbidden := []string{
 		"github.com/nats-io/nats-server",
 		"github.com/marcboeker/go-duckdb",
 		"github.com/minio/minio-go",
-		"github.com/garm-ai/garm/toolplane",
-		"github.com/garm-ai/garm/meter",
 		"github.com/garm-ai/garm/policy",
+		"github.com/garm-ai/garm/internal",
+		"github.com/spf13/cobra",
 	}
 	// GOWORK=off: this test exists to guarantee what a CONSUMER of the
 	// published contracts module sees, not what a developer working

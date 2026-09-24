@@ -28,7 +28,7 @@ Two consequences that look like bugs and are not:
 | | |
 |---|---|
 | `proto/garm/tool/v1/tool.proto` | The annotations. The whole contract this repository owns |
-| `contracts/` | Separate Go module — what a tool author imports. Must not require the parent |
+| `contracts/` | Generated Go: the annotations and the catalogue format. One module with the rest of this repository |
 | `policy/` | Compiles field annotations into redaction plans. `garmd` imports this rather than reimplementing it: two implementations of plan compilation would be a governance bug |
 | `internal/compiler/` | Loads protos, lints them, emits code. The plugin |
 | `cmd/garm/` | The CLI |
