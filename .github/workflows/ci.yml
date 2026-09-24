@@ -1,0 +1,63 @@
+# CI for garm.
+#
+# What this repository guarantees is enforced by tests and by the generator,
+# not by convention: a schema that declares governance the build cannot honour
+# must not compile, and nothing here may depend on the daemon. Both are checks,
+# not comments.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # mise provides both the toolchain and the tasks, so CI runs the same
+      # commands a contributor does. A CI job that reimplements the build is
+      # one that drifts from it.
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - run: mise run lint
+      - run: mise run build
+
+      # -race because the plan cache is shared across concurrent requests by
+      # design, and a data race there is a governance bug rather than a flake.
+      - run: mise run test
+
+      # Fails if the generated tree is stale. The alternative is discovering
+      # it in a consumer's build.
+      - run: mise run gen-check
+
+  # The property this repository exists to hold: an engineer authoring a tool
+  # schema must never need the daemon. Asserted, because a single careless
+  # import would end it silently.
+  no-daemon-dependency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: no module may reach garmd
+        run: |
+          if go list -deps ./... 2>/dev/null | grep -E 'garm-ai/garmd|/toolplane'; then
+            echo "::error::a package here reaches the daemon; see CLAUDE.md" >&2
+            exit 1
+          fi
+          echo "clean: nothing here depends on garmd"

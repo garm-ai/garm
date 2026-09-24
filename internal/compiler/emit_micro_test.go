@@ -42,7 +42,11 @@ func TestMicroServeRegistersAgainstToolbindRegistrar(t *testing.T) {
 		t.Error("ServeAccountsService must take a toolbind.Registrar, not a concrete runtime: " +
 			"contracts must not depend on garmtool (spec 1.2)")
 	}
-	if strings.Contains(src, "plaenen/garm/garmtool") {
+	// Matches on the package name rather than a full module path: the tool
+	// runtime lives in its own repository now, so the path it is imported
+	// from is not this repository's to know — but a generated binding must
+	// not import it under any path.
+	if strings.Contains(src, "/garmtool\"") {
 		t.Error("the generated binding imports garmtool; that inverts the dependency and " +
 			"fails the contracts thin-graph test")
 	}
