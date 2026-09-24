@@ -219,8 +219,22 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 		out = append(out, Diag{Rule: "L3", Path: path, Msg: fmt.Sprintf(
 			"tool name %q must match %s", t.Name, toolNameRE)})
 	} else if prev, dup := seen[t.Name]; dup {
+		// Across proto packages too, not only within one.
+		//
+		// The FQN stays unique either way — it is package plus name — so this
+		// is not about identity. It is about MCP, which lists and dispatches
+		// on the SHORT name: two tools sharing one means tools/call resolves
+		// to whichever the catalogue lists first. A governed call reaching the
+		// wrong tool is the worst failure in the system, and it would look
+		// like a working call.
+		//
+		// The plugin cannot catch this: it runs once per proto package and
+		// never compares two packages against each other. Linting a whole
+		// catalogue can, which is the one check that only exists here.
 		out = append(out, Diag{Rule: "L3", Path: path, Msg: fmt.Sprintf(
-			"tool name %q already used by %s", t.Name, prev)})
+			"tool name %q already used by %s; MCP dispatches on the short name, "+
+				"so two tools sharing one means a call resolves to whichever is "+
+				"listed first", t.Name, prev)})
 	} else {
 		seen[t.Name] = path
 	}

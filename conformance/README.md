@@ -14,6 +14,7 @@ cases/
   L5-mask-on-non-string/            mask is for strings; a number masked is a number changed
   L6-omit-without-presence/         omit needs `optional`, or redacted and empty look the same
   L14-L21-destructive-unsupervised/ a destructive tool must declare approval and audit
+  L3-name-reused-across-packages/   short names are unique across the WHOLE catalogue
 ```
 
 ## Running
@@ -32,9 +33,24 @@ then **read the diff**. These messages are the contract with everyone writing
 schemas — a changed message is a changed contract, and should be reviewed as
 one rather than regenerated past.
 
+## Why L3 spans two files
+
+It is the only case here that needs more than one `.proto`, and the only rule
+the code generator structurally cannot enforce: the plugin runs once per proto
+package and never compares two packages against each other.
+
+A catalogue is linted whole, so it can. That matters more than it sounds —
+MCP lists and dispatches on the SHORT name, so two tools sharing one means
+`tools/call` resolves to whichever the catalogue lists first. A governed call
+reaching the wrong tool is the worst failure in the system, and it would look
+like a working call.
+
+The FQN stays unique regardless, since it is package plus name. This is not
+about identity; it is about a flat namespace that one consumer insists on.
+
 ## Coverage
 
-Five cases against 27 rules. This is a reference, not an exhaustive matrix:
+Six cases against 27 rules. This is a reference, not an exhaustive matrix:
 the rules themselves are covered by unit tests in `internal/compiler`, which is
 the right place for a rule's edges. What belongs here is the handful a schema
 author actually trips over, written so the message and the `.proto` that

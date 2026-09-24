@@ -1,0 +1,1 @@
+error: L3: conformance.l3b.B.Get: tool name "get_status" already used by conformance.l3a.A.Get; MCP dispatches on the short name, so two tools sharing one means a call resolves to whichever is listed first
