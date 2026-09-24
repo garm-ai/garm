@@ -1,0 +1,1 @@
+error: L6: conformance.l6.S.Go(input).a: omit on a singular scalar requires `optional`, otherwise redacted and empty are indistinguishable

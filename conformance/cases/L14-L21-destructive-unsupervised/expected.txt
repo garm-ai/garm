@@ -1,0 +1,2 @@
+error: L14: conformance.l14.S.Delete: VERB_DESTRUCTIVE requires approval.mode MODE_GRANT
+error: L21: conformance.l14.S.Delete: VERB_DESTRUCTIVE requires audit.level LEVEL_AUDIT with fail_closed

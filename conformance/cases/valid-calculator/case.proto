@@ -1,0 +1,22 @@
+syntax = "proto3";
+package conformance.valid;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/valid;c";
+
+message AddRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double a = 1;
+  optional double b = 2;
+}
+message AddResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double sum = 1;
+}
+service Calculator {
+  rpc Add(AddRequest) returns (AddResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "add" title: "Add" description: "Add two numbers."
+      verb: VERB_READ min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}

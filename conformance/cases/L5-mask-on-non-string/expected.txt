@@ -1,0 +1,1 @@
+error: L5: conformance.l5.S.Go(input).a: redaction *toolv1.Redaction_Mask does not accept double fields

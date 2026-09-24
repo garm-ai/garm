@@ -1,0 +1,1 @@
+error: L1: conformance.l1.S.Go(input).id: no field policy and no message default

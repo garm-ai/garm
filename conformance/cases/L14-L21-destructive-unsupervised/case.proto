@@ -1,0 +1,22 @@
+syntax = "proto3";
+package conformance.l14;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/l14;c";
+
+message In {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string id = 1;
+}
+message Out {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string id = 1;
+}
+service S {
+  rpc Delete(In) returns (Out) {
+    option (garm.tool.v1.tool) = {
+      name: "delete" title: "Delete" description: "Irreversibly deletes."
+      verb: VERB_DESTRUCTIVE min_clearance: CLEARANCE_INTERNAL
+      effects: { reversibility: REVERSIBILITY_NONE }
+    };
+  }
+}

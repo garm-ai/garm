@@ -1,0 +1,21 @@
+syntax = "proto3";
+package conformance.l5;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/l5;c";
+
+message In {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  double a = 1;
+}
+message Out {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string note = 1;
+}
+service S {
+  rpc Go(In) returns (Out) {
+    option (garm.tool.v1.tool) = {
+      name: "go" title: "Go" description: "Mask on a numeric field."
+      verb: VERB_READ min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}

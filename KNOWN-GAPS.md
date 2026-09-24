@@ -27,7 +27,6 @@ services, so only the fixture's `TestService` case survives here. The
   `gen`, `lint`, `new` and the `protoc-gen-garm-*` subcommands are the
   first cut and are unwritten.
 - `protoc-gen-garm-python` does not exist. Go only.
-- `conformance/` does not exist.
 - The annotations are not published as a buf module.
 
 ## Deferred with their dependencies
