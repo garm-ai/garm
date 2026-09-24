@@ -83,6 +83,49 @@ rather than shelling out to `buf`: a digest that moves when a contributor
 upgrades a CLI on their laptop identifies nothing. The compiler version is
 recorded in provenance, so a digest mismatch is a diff rather than a mystery.
 
+## What it costs
+
+Measured on synthetic catalogues, one process, descriptors retained after the
+raw bytes and the `FileDescriptorSet` are dropped:
+
+| tools | artifact | load | retained heap |
+|---|---|---|---|
+| 100 | 40 KB | 3 ms | 1 MB |
+| 1,000 | 400 KB | 17 ms | 10 MB |
+| 10,000 | 3.8 MB | 170 ms | 93 MB |
+
+Linear throughout. The load time is almost entirely protobuf building and
+cross-resolving the registry; reading the annotations off it is under 2 ms at
+10,000 tools.
+
+### Comments are stripped, prose is not
+
+`SourceCodeInfo` carries spans and paths for every token in every file, and it
+is roughly **half** of both numbers above — before the strip, 10,000 tools cost
+9.7 MB on disk and 180 MB retained.
+
+So the prose is lifted into `field_docs` at build time and `SourceCodeInfo` is
+dropped. The schema keeps its documentation and the artifact stops carrying
+the position of every brace.
+
+**The schemas themselves are deliberately NOT precomputed.** They are projected
+per principal — a field a caller may not read is *absent*, not marked — so
+there is one schema per `(tool, clearance, compartments)` rather than one per
+tool, and that space cannot be enumerated at build time. The only schema that
+could be baked is the unprojected one, which is exactly the one that must never
+be served. Projection assembles a schema at run time from the descriptor plus
+`field_docs`, and caches by shape.
+
+### Sizing is per deployment, not per organisation
+
+93 MB is nothing for a central deployment and a great deal for a sidecar
+running beside every pod. Nothing requires one catalogue to hold every tool:
+**a deployment loads the catalogue it serves.** A pod whose agents use fifty
+tools loads a fifty-tool catalogue and pays about half a megabyte.
+
+For calibration, 10,000 is a stress case. A few hundred tools — a realistic
+catalogue — costs single-digit megabytes.
+
 ## Building one
 
 ```console

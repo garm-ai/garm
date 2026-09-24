@@ -52,6 +52,27 @@ message Catalogue {
   // Where this came from. Not trusted for anything — it is for the operator
   // reading a startup line and the engineer reading an incident.
   Provenance provenance = 5;
+
+  // Field documentation, keyed by each field's full proto name — for example
+  // "acme.accounts.v1.AccountSummary.iban".
+  //
+  // It is here because SourceCodeInfo is stripped from `files` before the
+  // artifact is written, and that strip is worth roughly half the memory a
+  // loaded catalogue retains and half its size on disk. SourceCodeInfo
+  // carries spans and paths for every token in every file; a schema only ever
+  // needed the prose.
+  //
+  // Prose matters enough to carry deliberately rather than lose. A projected
+  // schema without it shows a model typed fields with no indication of what
+  // they mean or why it may read one and not another, which is a large
+  // accuracy loss for the one reader the schema exists for.
+  //
+  // Note what is NOT here: the schemas themselves. Those are projected per
+  // principal — a field a caller may not read is absent, not marked — so
+  // there is one schema per (tool, clearance, compartments) rather than one
+  // per tool. The only schema that could be precomputed is the unprojected
+  // one, which is exactly the one that must never be served.
+  map<string, string> field_docs = 6;
 }
 
 // Provenance is what a human needs to answer "where did this come from".

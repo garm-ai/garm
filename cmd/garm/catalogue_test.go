@@ -5,6 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
+
+	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
 )
 
 // fixture is the smallest tree that produces a catalogue: the vendored
@@ -135,5 +139,75 @@ service Danger {
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err == nil {
 		t.Fatal("built a catalogue containing a destructive tool that declares no supervision")
+	}
+}
+
+// TestFieldDocsSurviveTheStrip is the trade this makes, in one test.
+//
+// SourceCodeInfo is dropped because it carries spans and paths for every
+// token in every file, and that is roughly half of what a loaded catalogue
+// costs. The prose is the only part a projected schema ever needed, so it is
+// lifted into a flat table first.
+//
+// Losing either half would be a quiet failure: no docs means a model reads
+// typed fields with no idea what they mean, and keeping SourceCodeInfo means
+// paying twice for the same words.
+func TestFieldDocsSurviveTheStrip(t *testing.T) {
+	dir := t.TempDir()
+	root := newRoot()
+	root.SetArgs([]string{"init", dir})
+	root.SetOut(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	svc := filepath.Join(dir, "proto", "doc", "v1")
+	if err := os.MkdirAll(svc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const p = `syntax = "proto3";
+package doc.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/doc/gen/doc/v1;docv1";
+message In {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  // Balance in minor units, so 1234 is 12.34.
+  // Never a float.
+  optional int64 minor_units = 1;
+}
+message Out {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string id = 1;
+}
+service S {
+  rpc Get(In) returns (Out) {
+    option (garm.tool.v1.tool) = {
+      name: "get" title: "Get" description: "Read."
+      verb: VERB_READ min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(svc, "d.proto"), []byte(p), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "c.binpb")
+	body := build(t, dir, out)
+	cat := &cataloguev1.Catalogue{}
+	if err := proto.Unmarshal(body, cat); err != nil {
+		t.Fatal(err)
+	}
+
+	got := cat.GetFieldDocs()["doc.v1.In.minor_units"]
+	const want = "Balance in minor units, so 1234 is 12.34. Never a float."
+	if got != want {
+		t.Errorf("field doc = %q, want %q (hard wrapping should collapse to one paragraph)", got, want)
+	}
+
+	for _, f := range cat.GetFiles().GetFile() {
+		if f.SourceCodeInfo != nil {
+			t.Errorf("%s still carries SourceCodeInfo; the prose was lifted so this could go",
+				f.GetName())
+		}
 	}
 }

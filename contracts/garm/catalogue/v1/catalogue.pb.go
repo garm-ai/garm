@@ -66,7 +66,27 @@ type Catalogue struct {
 	ToolSets     []*v1.Decl `protobuf:"bytes,4,rep,name=tool_sets,json=toolSets,proto3" json:"tool_sets,omitempty"`
 	// Where this came from. Not trusted for anything — it is for the operator
 	// reading a startup line and the engineer reading an incident.
-	Provenance    *Provenance `protobuf:"bytes,5,opt,name=provenance,proto3" json:"provenance,omitempty"`
+	Provenance *Provenance `protobuf:"bytes,5,opt,name=provenance,proto3" json:"provenance,omitempty"`
+	// Field documentation, keyed by each field's full proto name — for example
+	// "acme.accounts.v1.AccountSummary.iban".
+	//
+	// It is here because SourceCodeInfo is stripped from `files` before the
+	// artifact is written, and that strip is worth roughly half the memory a
+	// loaded catalogue retains and half its size on disk. SourceCodeInfo
+	// carries spans and paths for every token in every file; a schema only ever
+	// needed the prose.
+	//
+	// Prose matters enough to carry deliberately rather than lose. A projected
+	// schema without it shows a model typed fields with no indication of what
+	// they mean or why it may read one and not another, which is a large
+	// accuracy loss for the one reader the schema exists for.
+	//
+	// Note what is NOT here: the schemas themselves. Those are projected per
+	// principal — a field a caller may not read is absent, not marked — so
+	// there is one schema per (tool, clearance, compartments) rather than one
+	// per tool. The only schema that could be precomputed is the unprojected
+	// one, which is exactly the one that must never be served.
+	FieldDocs     map[string]string `protobuf:"bytes,6,rep,name=field_docs,json=fieldDocs,proto3" json:"field_docs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -132,6 +152,13 @@ func (x *Catalogue) GetToolSets() []*v1.Decl {
 func (x *Catalogue) GetProvenance() *Provenance {
 	if x != nil {
 		return x.Provenance
+	}
+	return nil
+}
+
+func (x *Catalogue) GetFieldDocs() map[string]string {
+	if x != nil {
+		return x.FieldDocs
 	}
 	return nil
 }
@@ -216,7 +243,7 @@ var File_garm_catalogue_v1_catalogue_proto protoreflect.FileDescriptor
 
 const file_garm_catalogue_v1_catalogue_proto_rawDesc = "" +
 	"\n" +
-	"!garm/catalogue/v1/catalogue.proto\x12\x11garm.catalogue.v1\x1a\x17garm/tool/v1/tool.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x02\n" +
+	"!garm/catalogue/v1/catalogue.proto\x12\x11garm.catalogue.v1\x1a\x17garm/tool/v1/tool.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb3\x03\n" +
 	"\tCatalogue\x12:\n" +
 	"\x19annotation_schema_version\x18\x01 \x01(\rR\x17annotationSchemaVersion\x128\n" +
 	"\x05files\x18\x02 \x01(\v2\".google.protobuf.FileDescriptorSetR\x05files\x126\n" +
@@ -224,7 +251,12 @@ const file_garm_catalogue_v1_catalogue_proto_rawDesc = "" +
 	"\ttool_sets\x18\x04 \x03(\v2\x12.garm.tool.v1.DeclR\btoolSets\x12=\n" +
 	"\n" +
 	"provenance\x18\x05 \x01(\v2\x1d.garm.catalogue.v1.ProvenanceR\n" +
-	"provenance\"\x93\x01\n" +
+	"provenance\x12J\n" +
+	"\n" +
+	"field_docs\x18\x06 \x03(\v2+.garm.catalogue.v1.Catalogue.FieldDocsEntryR\tfieldDocs\x1a<\n" +
+	"\x0eFieldDocsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x01\n" +
 	"\n" +
 	"Provenance\x12\x1a\n" +
 	"\bproducer\x18\x01 \x01(\tR\bproducer\x12\x1a\n" +
@@ -244,25 +276,27 @@ func file_garm_catalogue_v1_catalogue_proto_rawDescGZIP() []byte {
 	return file_garm_catalogue_v1_catalogue_proto_rawDescData
 }
 
-var file_garm_catalogue_v1_catalogue_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_garm_catalogue_v1_catalogue_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_garm_catalogue_v1_catalogue_proto_goTypes = []any{
 	(*Catalogue)(nil),                      // 0: garm.catalogue.v1.Catalogue
 	(*Provenance)(nil),                     // 1: garm.catalogue.v1.Provenance
-	(*descriptorpb.FileDescriptorSet)(nil), // 2: google.protobuf.FileDescriptorSet
-	(*v1.Decl)(nil),                        // 3: garm.tool.v1.Decl
-	(*timestamppb.Timestamp)(nil),          // 4: google.protobuf.Timestamp
+	nil,                                    // 2: garm.catalogue.v1.Catalogue.FieldDocsEntry
+	(*descriptorpb.FileDescriptorSet)(nil), // 3: google.protobuf.FileDescriptorSet
+	(*v1.Decl)(nil),                        // 4: garm.tool.v1.Decl
+	(*timestamppb.Timestamp)(nil),          // 5: google.protobuf.Timestamp
 }
 var file_garm_catalogue_v1_catalogue_proto_depIdxs = []int32{
-	2, // 0: garm.catalogue.v1.Catalogue.files:type_name -> google.protobuf.FileDescriptorSet
-	3, // 1: garm.catalogue.v1.Catalogue.compartments:type_name -> garm.tool.v1.Decl
-	3, // 2: garm.catalogue.v1.Catalogue.tool_sets:type_name -> garm.tool.v1.Decl
+	3, // 0: garm.catalogue.v1.Catalogue.files:type_name -> google.protobuf.FileDescriptorSet
+	4, // 1: garm.catalogue.v1.Catalogue.compartments:type_name -> garm.tool.v1.Decl
+	4, // 2: garm.catalogue.v1.Catalogue.tool_sets:type_name -> garm.tool.v1.Decl
 	1, // 3: garm.catalogue.v1.Catalogue.provenance:type_name -> garm.catalogue.v1.Provenance
-	4, // 4: garm.catalogue.v1.Provenance.built_at:type_name -> google.protobuf.Timestamp
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	2, // 4: garm.catalogue.v1.Catalogue.field_docs:type_name -> garm.catalogue.v1.Catalogue.FieldDocsEntry
+	5, // 5: garm.catalogue.v1.Provenance.built_at:type_name -> google.protobuf.Timestamp
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_garm_catalogue_v1_catalogue_proto_init() }
@@ -276,7 +310,7 @@ func file_garm_catalogue_v1_catalogue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_garm_catalogue_v1_catalogue_proto_rawDesc), len(file_garm_catalogue_v1_catalogue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
