@@ -1,0 +1,73 @@
+// The catalogue: what a garm daemon serves.
+//
+// A daemon does not know its tools at build time. It loads one of these at
+// boot and serves exactly what it declares, which is what makes adding a tool
+// a catalogue rebuild rather than a release of the governance binary.
+//
+// This file is the contract between whoever BUILDS a catalogue and the daemon
+// that LOADS one. It lives beside the annotations because it is exactly that:
+// a contract, not an implementation detail of either side.
+syntax = "proto3";
+
+package garm.catalogue.v1;
+
+import "garm/tool/v1/tool.proto";
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/garm-ai/garm/contracts/garm/catalogue/v1;cataloguev1";
+
+// Catalogue is the artifact. One file, self-contained, identified by the
+// digest of its own bytes — which is computed by the loader over what it was
+// handed, never recorded in here. A digest a producer asserts about itself is
+// not a digest.
+message Catalogue {
+  // The annotation schema this catalogue's declarations were written against.
+  //
+  // A daemon reads the current version and the two previous, and refuses
+  // anything outside that window at boot rather than loading a policy
+  // document it only partly understands.
+  //
+  // Scoped to garm.tool.v1 deliberately. A catalogue may carry declarations
+  // annotated in other namespaces — an agent runner's, say — and a daemon
+  // ignores those entirely. Widening this check to every extension namespace
+  // would refuse such a catalogue at boot, which is agent-awareness acquired
+  // through an error message.
+  uint32 annotation_schema_version = 1;
+
+  // Every proto file the declarations need, including their transitive
+  // imports. Self-contained on purpose: a daemon resolves nothing at boot and
+  // reaches no registry.
+  google.protobuf.FileDescriptorSet files = 2;
+
+  // The taxonomy every declaration in `files` refers to, aggregated across
+  // packages at build time.
+  //
+  // Aggregated here rather than derived at load because the build is where
+  // two packages declaring the same compartment two ways can be caught, and
+  // a daemon that had to reconcile them would be deciding policy.
+  repeated garm.tool.v1.Decl compartments = 3;
+  repeated garm.tool.v1.Decl tool_sets = 4;
+
+  // Where this came from. Not trusted for anything — it is for the operator
+  // reading a startup line and the engineer reading an incident.
+  Provenance provenance = 5;
+}
+
+// Provenance is what a human needs to answer "where did this come from".
+message Provenance {
+  // The tool that wrote it, with its version. "garm/v1.4.2".
+  string producer = 1;
+
+  // The proto compiler and version used, because identical source compiled by
+  // different compilers can produce different descriptor bytes and therefore
+  // a different digest. Recording it makes a digest mismatch diagnosable
+  // instead of mysterious.
+  string compiler = 2;
+
+  google.protobuf.Timestamp built_at = 3;
+
+  // Free-form: a repository and commit, a pipeline id, whatever the builder
+  // knows. Never parsed.
+  string source = 4;
+}

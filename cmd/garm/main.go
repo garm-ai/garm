@@ -42,6 +42,7 @@ func newRoot() *cobra.Command {
 		newInitCmd(),
 		newGenCmd(),
 		newLintCmd(),
+		newCatalogueCmd(),
 		newPluginCmd(),
 	)
 	return root

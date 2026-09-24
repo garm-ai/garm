@@ -22,3 +22,16 @@ var AnnotationsProto []byte
 // The path is part of the contract: an import of "garm/tool/v1/tool.proto"
 // has to resolve, so this is not a preference.
 const AnnotationsPath = "proto/garm/tool/v1/tool.proto"
+
+// AnnotationSchemaVersion is the version of the garm.tool.v1 vocabulary this
+// build speaks, stamped into every catalogue it produces.
+//
+// A daemon reads the current version and the two previous and refuses anything
+// outside that window at boot. It is an integer rather than a semver because
+// the only question asked of it is "can this binary read that catalogue", and
+// a range check wants a number.
+//
+// Bump it when a change to the annotations means an older daemon would
+// misread a declaration — not when a field is added that an older daemon can
+// safely ignore.
+const AnnotationSchemaVersion = 1

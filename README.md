@@ -33,6 +33,15 @@ The binary also **contains** `protoc-gen-garm-go` and
 three — and the annotations and the generator that reads them cannot drift
 apart, because they are the same artifact.
 
+## The catalogue
+
+`garm catalogue build` compiles a proto tree into the artifact a daemon loads
+at boot, so adding a tool is a catalogue rebuild rather than a release of the
+governance binary. Two builds of identical source produce identical bytes,
+because the digest is the catalogue's identity.
+
+See **[docs/catalogue.md](docs/catalogue.md)**.
+
 ## Why the annotations live with the CLI
 
 They have the same consumers, the same release cadence, and no build edge
