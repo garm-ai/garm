@@ -1,11 +1,11 @@
-// Command protoc-gen-garm-tools emits the garm tool registry and fails the
-// build on any error-level lint diagnostic.
+// Package plugin is the protoc plugin that emits garm tool bindings and
+// fails the build on any error-level lint diagnostic.
 //
 // This is the piece that makes "unlabeled data fails the build, not the
-// request" true: every other package in this repo is a library that could
-// be wired up correctly or incorrectly. This binary is what refuses to
-// produce output at all when a schema violates garm tool policy.
-package main
+// request" true: every other package here is a library that could be wired
+// up correctly or incorrectly. This is what refuses to produce output at
+// all when a schema violates garm tool policy.
+package plugin
 
 import (
 	"flag"
@@ -22,7 +22,17 @@ import (
 	"github.com/garm-ai/garm/internal/compiler"
 )
 
-func main() {
+// Run is the plugin entry point, speaking protoc's stdin/stdout protocol.
+//
+// Two binaries call it. cmd/protoc-gen-garm-go exists so that `go install`
+// produces the conventionally named binary people expect to put on PATH;
+// the garm CLI exposes the same entry point as `garm protoc-gen-go`, so a
+// buf.gen.yaml can name the CLI directly and never install a second thing.
+//
+// One implementation, one module, one tag: the annotations and the
+// generator that reads them cannot drift apart, which is the whole reason
+// for bundling — kept without giving up the conventional name.
+func Run() {
 	var flagSet flag.FlagSet
 	// package_suffix mirrors protoc-gen-connect-go's own flag of the same
 	// name: empty (the default) colocates the generated registration file
