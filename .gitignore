@@ -1,0 +1,28 @@
+# Build output. `go build ./cmd/<x>` drops a binary in the working directory
+# named after the package, so each one is listed at the root as a backstop
+# even though bin/ is the documented output path.
+bin/
+/garm
+/protoc-gen-garm-go
+/protoc-gen-garm-python
+
+# Go workspace state. go.work IS committed — it is how the parent module and
+# contracts/ resolve during development, and a checkout without it does not
+# build. go.work.sum is a local resolution cache and is not.
+go.work.sum
+
+# Test and coverage output
+*.out
+*.test
+coverage.*
+
+# Editor and OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# mise's local overrides — the committed mise.toml is the shared toolchain;
+# mise.local.toml is for a contributor pinning something for themselves.
+mise.local.toml
+.mise.local.toml
