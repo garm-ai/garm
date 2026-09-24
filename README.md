@@ -40,7 +40,10 @@ at boot, so adding a tool is a catalogue rebuild rather than a release of the
 governance binary. Two builds of identical source produce identical bytes,
 because the digest is the catalogue's identity.
 
-See **[docs/catalogue.md](docs/catalogue.md)**.
+About 384 bytes per tool on disk and 9.3 KB retained, linear to at least
+10,000 tools — `mise run bench` measures it, and
+**[docs/catalogue.md](docs/catalogue.md)** explains what it means for where a
+catalogue should be sized.
 
 ## Why the annotations live with the CLI
 

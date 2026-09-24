@@ -25,6 +25,12 @@ run = "go build ./..."
 description = "Run the tests"
 run = "go test ./... -race -count=1"
 
+[tasks.bench]
+description = "Measure what a catalogue costs to build, load and hold"
+# -benchtime=1x because these measure a one-shot cost, not throughput: nobody
+# loads a catalogue in a hot loop, and repeating it only measures a warm cache.
+run = "go test ./cmd/garm/ -bench=Catalogue -benchtime=1x -run=XXX"
+
 [tasks.lint]
 description = "Lint the protos and vet the Go"
 run = ["buf lint", "go vet ./..."]

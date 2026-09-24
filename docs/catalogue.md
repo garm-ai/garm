@@ -24,85 +24,44 @@ separately. A daemon ships on its own cadence and a catalogue ships on the
 tool authors'. Neither blocks the other, and the compatibility between them is
 a stated range rather than an accident of what happened to be built together.
 
-## What it costs, and what pays for it
-
-The thing given up is real: a self-contained binary used to be able to say
-"these are my tools" from its own build. That property is load-bearing for
-governance, not decoration, so it is replaced rather than dropped.
-
-**Identity becomes the pair `(binary version, catalogue digest)`.**
-
-Both appear in the startup line, on the health endpoint, in `GetCatalogue`,
-and on every ledger event. *Which tools is this process serving* stays exactly
-answerable, and provable from an audit record months later.
-
-This is the shape Envoy and OPA use: a slow, stable binary plus a fast,
-versioned, digest-identified policy artifact.
-
-## What is in one
-
-| | |
-|---|---|
-| `annotation_schema_version` | Which vocabulary the declarations speak |
-| `files` | A `FileDescriptorSet` — every proto needed, including transitive imports |
-| `compartments`, `tool_sets` | The taxonomy the declarations refer to, aggregated across packages at build time |
-| `provenance` | Producer, compiler, optional source and build time |
-
-**Self-contained on purpose.** A daemon resolves nothing at boot and reaches no
-registry. Whatever the catalogue does not carry, it does not have.
-
-**The taxonomy is aggregated at build time, not derived at load.** The build is
-where two packages declaring the same compartment two ways can be caught. A
-daemon that had to reconcile them would be deciding policy, which is not its
-job.
-
-**Provenance is for humans.** It is not trusted for anything. It exists for the
-operator reading a startup line and the engineer reading an incident.
-
-## The digest
-
-Computed with SHA-256 **over the artifact bytes, before anything is parsed.**
-
-Digesting after parsing would record what the daemon understood rather than
-what it was handed — which is the wrong thing to identify, and which would
-quietly change meaning the day a parser changed.
-
-### Reproducibility is a property, not a nicety
-
-**Two builds of identical source produce identical bytes.** If they did not,
-the digest would identify the *build* rather than the content — a redeploy of
-unchanged source would look like a change, and "are these two deployments
-serving the same tools?" would be unanswerable.
-
-That is why the build time is **off by default**. `--stamp-time` records it and
-says in its own help what it costs. A wall clock buys little that `--source`
-(a repository and commit) does not already carry.
-
-It is also why compilation is in process, against a compiler this binary pins,
-rather than shelling out to `buf`: a digest that moves when a contributor
-upgrades a CLI on their laptop identifies nothing. The compiler version is
-recorded in provenance, so a digest mismatch is a diff rather than a mystery.
-
 ## What it costs
 
-Measured on synthetic catalogues, one process, descriptors retained after the
-raw bytes and the `FileDescriptorSet` are dropped:
+Measured, not estimated. The benchmark is committed:
 
-| tools | artifact | load | retained heap |
-|---|---|---|---|
-| 100 | 40 KB | 3 ms | 1 MB |
-| 1,000 | 400 KB | 17 ms | 10 MB |
-| 10,000 | 3.8 MB | 170 ms | 93 MB |
+```console
+$ go test ./cmd/garm/ -bench=Catalogue -benchtime=1x -run=XXX
+```
 
-Linear throughout. The load time is almost entirely protobuf building and
-cross-resolving the registry; reading the annotations off it is under 2 ms at
-10,000 tools.
+| tools | artifact | build | load | retained heap |
+|---|---|---|---|---|
+| 100 | 53 KB | 14 ms | 1.5 ms | 2.4 MB |
+| 1,000 | 378 KB | 133 ms | 14 ms | 10.7 MB |
+| 10,000 | 3.7 MB | 969 ms | 112 ms | 93.5 MB |
+
+Linear throughout: about **384 bytes per tool on disk** and **9.3 KB per tool
+retained**. Figures from an Apple Silicon laptop; the shape of the curve is the
+portable part, not the constants.
+
+**Three separate costs, paid by different people.** Build is paid once by
+whoever publishes. Load is paid at every daemon start. Retained heap is paid
+for as long as the process runs, and it is the one that decides whether a
+catalogue of a given size belongs beside every pod.
+
+Load is almost entirely protobuf building and cross-resolving the registry.
+Reading the annotations off it afterwards is under 2 ms at 10,000 tools, so
+there is nothing to optimise on garm's side of that line.
+
+The benchmark protos are deliberately undocumented. Comments live in
+`field_docs`, and their size is a property of the schema rather than of the
+catalogue — so these numbers are a floor, and a well-documented catalogue both
+carries more and saves more from the strip below.
 
 ### Comments are stripped, prose is not
 
 `SourceCodeInfo` carries spans and paths for every token in every file, and it
 is roughly **half** of both numbers above — before the strip, 10,000 tools cost
-9.7 MB on disk and 180 MB retained.
+9.7 MB on disk and 180 MB retained. Re-measure by deleting the strip in
+`runCatalogueBuild` and running the benchmark again.
 
 So the prose is lifted into `field_docs` at build time and `SourceCodeInfo` is
 dropped. The schema keeps its documentation and the artifact stops carrying
