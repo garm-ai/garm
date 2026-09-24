@@ -1,0 +1,1 @@
+warning: L30: conformance.acme.financial.services.payments.v1.S.Get: flattened name "conformance_acme_financial_services_payments_v1_list_international_wire_transfers" is 81 characters; a function-calling client allows 64. Harmless while clients see the short name, and a call to the wrong tool if they ever see this one. Shorten the proto package or the tool name

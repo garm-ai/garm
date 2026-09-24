@@ -1,0 +1,23 @@
+syntax = "proto3";
+// A plausible enterprise package: deep, and every segment meaningful.
+package conformance.acme.financial.services.payments.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/l30;l30";
+
+message In {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string id = 1;
+}
+message Out {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string status = 1;
+}
+service S {
+  rpc Get(In) returns (Out) {
+    option (garm.tool.v1.tool) = {
+      name: "list_international_wire_transfers"
+      title: "List wires" description: "Read recent international wires."
+      verb: VERB_READ min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}

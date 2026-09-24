@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -239,6 +240,29 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 		seen[t.Name] = path
 	}
 
+	// L30: the flattened FQN has to survive a function-calling API.
+	//
+	// MCP tool names are routinely bridged to function calling, whose names
+	// must match ^[a-zA-Z0-9_-]{1,64}$. A dotted FQN is not safe there, so the
+	// name a client sees is the FQN with dots replaced by underscores — and
+	// that has a budget.
+	//
+	// A WARNING, not an error, because what a client sees is not settled:
+	// the flattened FQN is one candidate and an author-declared short name is
+	// the other. This budget binds only under the first. Warning now keeps
+	// anyone from building a schema that cannot adopt it, without refusing
+	// one that may never need to.
+	//
+	// The charset needs no check: proto package segments and tool names are
+	// both already constrained to characters that survive flattening.
+	if flat := flatFQN(string(t.Method.ParentFile().Package()), t.Name); len(flat) > maxFlatFQN {
+		out = append(out, Diag{Rule: "L30", Path: path, Warn: true, Msg: fmt.Sprintf(
+			"flattened name %q is %d characters; a function-calling client allows %d. "+
+				"Harmless while clients see the short name, and a call to the wrong tool "+
+				"if they ever see this one. Shorten the proto package or the tool name",
+			flat, len(flat), maxFlatFQN)})
+	}
+
 	if t.Method.IsStreamingServer() || t.Method.IsStreamingClient() {
 		out = append(out, Diag{Rule: "L4", Path: path,
 			Msg: "streaming RPCs cannot be MCP tools; set exclude: true"})
@@ -265,6 +289,15 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 // already emits duplicates when a tool's request and response are the same
 // type; deduplication belongs at the printing layer, not here, where
 // dropping a repeat would mean dropping the path that names it.
+// maxFlatFQN is the function-calling name budget: ^[a-zA-Z0-9_-]{1,64}$.
+const maxFlatFQN = 64
+
+// flatFQN is the name a client sees — the FQN with dots replaced, because
+// dots are not valid in a function-calling name.
+func flatFQN(pkg, name string) string {
+	return strings.ReplaceAll(pkg+"."+name, ".", "_")
+}
+
 func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path string, recordResponse bool) []Diag {
 	var out []Diag
 	// seen is PATH-scoped (note the defer delete), exactly like
