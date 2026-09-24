@@ -64,16 +64,17 @@ same across every garm-ai repository — that consistency is the point.
 
 ## The design record is not in this repository
 
-Specifications, decisions and plans live in the **private monorepo** at
-`~/Documents/github/spikes/garm`, under `docs/superpowers/`. They are one
-interlinked corpus — specs cite each other by section — so they were not split
-across repositories, and they are not published.
+Specifications, decisions and plans live in the private **`spec`**
+repository, checked out beside this one at `../spec/docs/superpowers/`. They
+are one interlinked corpus — specs cite each other by section — so they were
+not split across repositories, and they are not published.
 
 Read them there when you need the reasoning. The ones that govern this
 repository:
 
 - `specs/2026-09-25-public-split-design.md` — why these repositories exist
 - `decisions/2026-09-25-garm-is-the-cli.md` — why `garm` is the CLI
+- `decisions/2026-09-25-transport-is-a-port.md` — NATS, and what is not swappable
 - `specs/2026-09-24-tool-service-shell-design.md` — the contract artifacts
 - `specs/2026-09-24-call-stack-design.md` — what the annotations govern
 
