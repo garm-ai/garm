@@ -1,0 +1,15 @@
+version: v2
+modules:
+  # The contract: the annotations, and nothing else. This is what a tool
+  # author depends on, and the only module published.
+  - path: proto
+  # Test fixtures. A module of their own so they can import the contract by
+  # its real path rather than a relative one, and so lint rules meant for
+  # the published contract do not judge a deliberately awkward fixture.
+  - path: policy/testdata
+    lint:
+      use: [BASIC]
+lint:
+  use: [STANDARD]
+breaking:
+  use: [FILE]

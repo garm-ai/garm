@@ -1,0 +1,189 @@
+// Annotation vocabulary for the tools server (tools spec §3).
+syntax = "proto3";
+
+package garm.tool.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/garm-ai/garm/contracts/garm/tool/v1;toolv1";
+
+// ---------------------------------------------------------------- classification
+
+// The enum number is the ordinal. Values are spaced by ten so a level can be
+// inserted later; existing values must never be renumbered.
+enum Clearance {
+  CLEARANCE_UNSPECIFIED  = 0;   // never a valid caller or field value
+  CLEARANCE_PUBLIC       = 10;
+  CLEARANCE_INTERNAL     = 20;
+  CLEARANCE_CONFIDENTIAL = 30;
+  CLEARANCE_RESTRICTED   = 40;
+}
+
+enum Verb {
+  VERB_UNSPECIFIED = 0;
+  VERB_READ        = 1;
+  VERB_WRITE       = 2;
+  VERB_DESTRUCTIVE = 3;
+}
+
+// PrincipalKind says WHAT is calling, not what it may do.
+//
+// It is attribution, never authorization. Nothing in the chain reads it: the
+// ten steps decide on clearance, compartments, verbs and tool sets, and
+// adding a fifth vocabulary that can deny a call would mean two places to
+// look when a call is refused. It exists because "which of these ledger rows
+// were agents" is a question people ask constantly and cannot currently
+// answer, and because the tool on the far side of the resolver is entitled
+// to know whether a human is waiting on it.
+//
+// If gating on kind is ever wanted, it belongs in a declared field on
+// ToolPolicy — reviewed like any other governance — not in an ad-hoc check.
+enum PrincipalKind {
+  PRINCIPAL_KIND_UNSPECIFIED = 0;  // a token that did not say; attribution only, never a denial
+  PRINCIPAL_KIND_USER        = 1;  // a person
+  PRINCIPAL_KIND_AGENT       = 2;  // an autonomous loop acting for someone
+  PRINCIPAL_KIND_SERVICE     = 3;  // a system calling on its own behalf
+}
+
+enum Reversibility {
+  REVERSIBILITY_UNSPECIFIED = 0;  // fails closed to NONE
+  REVERSIBILITY_NONE        = 1;
+  REVERSIBILITY_COMPENSABLE = 2;
+  REVERSIBILITY_FULL        = 3;
+}
+
+enum Grain {
+  GRAIN_UNSPECIFIED = 0;
+  GRAIN_DAY         = 1;
+  GRAIN_MONTH       = 2;
+  GRAIN_YEAR        = 3;
+}
+
+// ---------------------------------------------------------------- redaction
+
+message Omit         {}
+message Mask         { string with = 1; }          // default "[REDACTED]"
+message Hash         { bool per_tenant_salt = 1; }
+message EmailDomain  {}
+message KeepLast     { uint32 n = 1; bool runes = 2; string reason = 3; }
+message Truncate     { uint32 n = 1; bool runes = 2; string reason = 3; }
+message CardBinLast4 {}
+message IpPrefix     { uint32 bits = 1; }
+message UrlOrigin    {}
+message DateGrain    { Grain grain = 1; }
+message Custom       { string name = 1; }
+
+message Redaction {
+  oneof kind {
+    Omit         omit           = 1;
+    Mask         mask           = 2;
+    Hash         hash           = 3;
+    EmailDomain  email_domain   = 4;
+    KeepLast     keep_last      = 5;
+    Truncate     truncate       = 6;
+    CardBinLast4 card_bin_last4 = 7;
+    IpPrefix     ip_prefix      = 8;
+    UrlOrigin    url_origin     = 9;
+    DateGrain    date_grain     = 10;
+    Custom       custom         = 15;
+  }
+}
+
+// ---------------------------------------------------------------- field policy
+
+message FieldPolicy {
+  Clearance read  = 1;
+  Clearance write = 2;               // unset = same as read
+  repeated string compartments = 3;
+  Redaction on_deny = 4;             // unset = omit
+  bool audit_on_read = 5;
+}
+
+// ---------------------------------------------------------------- tool policy
+
+message Effects {
+  bool idempotent = 1;
+  Reversibility reversibility = 2;
+  bool external = 3;
+  string compensating_tool = 4;
+}
+
+message Approval {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    MODE_NONE   = 1;
+    MODE_NOTIFY = 2;
+    MODE_GRANT  = 3;
+  }
+  Mode mode = 1;
+  Clearance approver_min_clearance = 2;
+  repeated string approver_compartments = 3;
+  uint32 max_grant_age_seconds = 4;
+  string notes = 5;
+}
+
+message Example { string description = 1; string request_json = 2; }
+
+message Guidance {
+  string when_to_use = 1;
+  string when_not_to_use = 2;
+  repeated Example examples = 3;
+  string on_error = 4;
+}
+
+message ListFilter { string repeated_field = 1; string id_field = 2; }
+
+message Fga {
+  string relation = 1;
+  string object_type = 2;
+  oneof object {
+    string     from_request_field  = 3;
+    string     from_response_field = 4;
+    ListFilter filter_response     = 5;
+  }
+}
+
+message Authorization { oneof backend { Fga fga = 1; } }
+
+message Audit {
+  enum Level {
+    LEVEL_UNSPECIFIED = 0;           // = LEVEL_LEDGER
+    LEVEL_LEDGER      = 1;
+    LEVEL_AUDIT       = 2;
+  }
+  Level level = 1;
+  bool record_request  = 2;
+  bool record_response = 3;
+  uint32 retain_days   = 4;
+  bool fail_closed     = 5;
+}
+
+message ToolPolicy {
+  string name = 1;
+  string title = 2;
+  string description = 3;
+  Verb verb = 4;
+  Clearance min_clearance = 5;
+  repeated string compartments = 6;
+  bool exclude = 7;
+
+  Effects       effects       = 8;
+  Approval      approval      = 9;
+  Guidance      guidance      = 10;
+  Authorization authorization = 11;
+  repeated string sets = 12;
+  Audit         audit         = 13;
+}
+
+// ---------------------------------------------------------------- declarations
+
+message Decl { string name = 1; string description = 2; }
+message DeclSet { repeated Decl declared = 1; }
+
+// ---------------------------------------------------------------- extensions
+
+extend google.protobuf.FieldOptions   { FieldPolicy field_policy = 50001; }
+extend google.protobuf.MethodOptions  { ToolPolicy  tool = 50002; }
+extend google.protobuf.MessageOptions { FieldPolicy default_field_policy = 50003; }
+extend google.protobuf.FileOptions    { DeclSet compartments = 50004; }
+extend google.protobuf.FileOptions    { DeclSet tool_sets = 50005; }

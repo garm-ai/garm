@@ -1,0 +1,49 @@
+# Toolchain and tasks for garm. `mise install` gets you a working checkout;
+# `mise run ci` is exactly what CI runs.
+#
+# mise is the task runner as well as the toolchain manager, deliberately: a
+# second tool for `build` and `test` would be a second config file in every
+# repository, and the value here is that `mise run test` means the same thing
+# in all of them.
+
+[tools]
+go = "1.26"
+buf = "1"
+
+[tasks.gen]
+description = "Regenerate the contract and the test fixtures"
+run = [
+  "buf generate",
+  "buf generate --template buf.gen.testdata.yaml",
+]
+
+[tasks.build]
+description = "Build every package"
+run = "go build ./..."
+
+[tasks.test]
+description = "Run the tests"
+run = "go test ./... -race -count=1"
+
+[tasks.lint]
+description = "Lint the protos and vet the Go"
+run = ["buf lint", "go vet ./..."]
+
+[tasks.fmt]
+description = "Format Go and protos"
+run = ["go fmt ./...", "buf format -w"]
+
+[tasks."gen-check"]
+description = "Fail if the generated tree is stale"
+run = """
+mise run gen
+if [ -n "$(git status --porcelain)" ]; then
+  echo "generated output is stale — run 'mise run gen' and commit:" >&2
+  git status --short >&2
+  exit 1
+fi
+"""
+
+[tasks.ci]
+description = "Everything CI runs"
+depends = ["lint", "build", "test", "gen-check"]

@@ -1,0 +1,16 @@
+# The policy tests need a compiled fixture exercising every annotation, and
+# the naming mirror test needs real connect-go output to compare against.
+#
+# It deliberately does NOT generate a tool registry: that binds to the
+# enforcing package, which lives in the daemon's repository.
+version: v2
+inputs:
+  - directory: .
+    paths: [policy/testdata/fixture.proto]
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: policy/testdata
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: policy/testdata
+    opt: paths=source_relative

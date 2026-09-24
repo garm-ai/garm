@@ -1,0 +1,7 @@
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: contracts
+    opt: paths=source_relative

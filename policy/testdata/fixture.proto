@@ -1,0 +1,196 @@
+syntax = "proto3";
+package policy.testdata;
+import "garm/tool/v1/tool.proto";
+option go_package = "github.com/garm-ai/garm/policy/testdata;testdata";
+
+option (garm.tool.v1.compartments) = {
+  declared: [{ name: "financial" }, { name: "pii-contact" }, { name: "support" }]
+};
+
+message Profile {
+  // on_deny is explicit (mask, not the implicit omit default) because
+  // "locale" is a plain proto3 scalar with no presence: an implicit omit
+  // would be indistinguishable from an empty string on the wire (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL on_deny: { mask: {} } };
+
+  string id = 1 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }  // no presence on this scalar; see above (L6)
+  }];
+  string locale = 2;                                  // inherits INTERNAL
+
+  optional string email = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["pii-contact"]
+    on_deny: { email_domain: {} }
+  }];
+
+  optional Billing billing = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+
+  optional string national_id = 5 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+    audit_on_read: true
+  }];
+
+  map<string, string> tags = 6;                        // inherits INTERNAL
+
+  // Deliberately named to share a dotted-prefix with the "billing" subtree
+  // ("billing_summary" starts with "billing" as a string but is not beneath
+  // it as a path: "billing." is not a prefix of "billing_summary"). Denied
+  // on its own terms (RESTRICTED) so a resolver that mistakenly treats
+  // string-prefix as path-prefix will wrongly prune it from Deny.
+  optional string billing_summary = 7 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  }];
+
+  // Message-valued map: Compile must recurse into the value type (Billing),
+  // and denial of the map field itself must gate (and clear) the whole map,
+  // exactly like a non-map message-typed field does.
+  map<string, Billing> billing_by_id = 8 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+
+  // Scalar-valued map with a non-omit redaction, so the sanitizer's map
+  // branch can be exercised end to end through the real Compile/Resolve
+  // pipeline rather than a hand-built Action.
+  map<string, string> attributes = 9 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    on_deny: { mask: {} }
+  }];
+}
+
+message Billing {
+  // on_deny is explicit for the same reason as Profile's default above:
+  // card_last4 is a presence-less scalar, so implicit omit would trip L6.
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL compartments: ["financial"]
+    on_deny: { mask: {} } };
+  string card_last4 = 1;
+  string iban = 2 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["financial"]
+    on_deny: { keep_last: { n: 4, reason: "reconciliation" } }
+  }];
+}
+
+message SearchResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC };
+  repeated Profile profiles = 1 [(garm.tool.v1.field_policy) = { read: CLEARANCE_INTERNAL }];
+  int32 total = 2;
+}
+
+message GetProfileRequest {
+  // on_deny is explicit for the same reason as Profile's default above
+  // (L6); it never actually applies here since request messages are never
+  // sanitized, only checked for write clearance, but the lint runs over
+  // every reachable field regardless of direction.
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string user_id = 1;
+}
+
+message GetProfileResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC };
+  Profile profile = 1;
+}
+
+message UpdateProfileRequest {
+  // See GetProfileRequest above: explicit on_deny only to satisfy L6.
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  string user_id = 1;
+  optional string display_name = 2;
+
+  // Read is cheap (INTERNAL); writing it requires much more (RESTRICTED).
+  // Exists so an explicit `write:` override has at least one real exerciser
+  // in the repo — every other field policy leaves write unset and inherits
+  // read, which never exercises the branch in Compile that reads GetWrite().
+  optional string admin_note = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    write: CLEARANCE_RESTRICTED
+  }];
+}
+
+message UpdateProfileResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC };
+  Profile profile = 1;
+}
+
+service TestService {
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "get_profile"
+      description: "Look up a profile by id."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      effects: { idempotent: true, reversibility: REVERSIBILITY_FULL }
+      approval: { mode: MODE_NONE }
+    };
+  }
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "update_profile"
+      description: "Update mutable profile fields."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      effects: { idempotent: true, reversibility: REVERSIBILITY_FULL }
+      approval: { mode: MODE_NONE }
+    };
+  }
+}
+
+// Deliberately carries no field policy and no message default. Compile must
+// reject it. Not reachable from any tool, so the lint in a later task will
+// not walk it.
+message Unlabeled {
+  string oops = 1;
+}
+
+// Node is self-recursive, and deliberately NOT reachable from any tool (so
+// `make gen`'s lint does not walk it and the build stays green). It exists
+// so TestCompileRejectsARecursiveMessage can drive the real Compile over a
+// real generated descriptor.
+//
+// Shape taken verbatim from the leak the final branch review found: a
+// classified `secret` beside a self-reference. A Compile that stopped at the
+// cycle instead of erroring would emit actions for `child` and `secret` and
+// nothing for `child.secret`, so a PUBLIC caller would receive every nested
+// secret in the clear.
+message Node {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+
+  optional Node child = 1;
+  optional string secret = 2 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  }];
+}
+
+// LoopA/LoopB are the MUTUAL form of the same defect: neither message
+// references itself, so a cycle check that only compared a field's type
+// against its own parent would miss them entirely.
+message LoopA {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  optional LoopB b = 1;
+}
+
+message LoopB {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC on_deny: { mask: {} } };
+  optional LoopA a = 1;
+  optional string secret = 2 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  }];
+}
