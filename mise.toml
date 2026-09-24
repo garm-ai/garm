@@ -35,11 +35,15 @@ run = ["go fmt ./...", "buf format -w"]
 
 [tasks."gen-check"]
 description = "Fail if the generated tree is stale"
+# Scoped to the generated paths on purpose. Checking the whole tree would
+# fail on any unrelated edit in the working directory, which is right in CI
+# and misleading everywhere else — and a check that cries wolf locally is a
+# check people stop running before they push.
 run = """
 mise run gen
-if [ -n "$(git status --porcelain)" ]; then
+if ! git diff --quiet -- contracts policy/testdata; then
   echo "generated output is stale — run 'mise run gen' and commit:" >&2
-  git status --short >&2
+  git diff --stat -- contracts policy/testdata >&2
   exit 1
 fi
 """
