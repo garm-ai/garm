@@ -9,6 +9,11 @@ modules:
   - path: policy/testdata
     lint:
       use: [BASIC]
+      # The fixture sits at its own module's root, so its package can never
+      # match a subdirectory — the rule is unsatisfiable here rather than
+      # unmet. It is a module of its own precisely so it can import the
+      # contract by its real path, which is worth more than the rule.
+      except: [PACKAGE_DIRECTORY_MATCH]
 lint:
   use: [STANDARD]
 breaking:

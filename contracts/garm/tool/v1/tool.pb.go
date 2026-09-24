@@ -2268,7 +2268,7 @@ var file_garm_tool_v1_tool_proto_goTypes = []any{
 	(*Authorization)(nil),               // 26: garm.tool.v1.Authorization
 	(*Audit)(nil),                       // 27: garm.tool.v1.Audit
 	(*ToolPolicy)(nil),                  // 28: garm.tool.v1.ToolPolicy
-	(*Decl)(nil),                        // 29: garm.tool.toolv1.Decl
+	(*Decl)(nil),                        // 29: garm.tool.v1.Decl
 	(*DeclSet)(nil),                     // 30: garm.tool.v1.DeclSet
 	(*descriptorpb.FieldOptions)(nil),   // 31: google.protobuf.FieldOptions
 	(*descriptorpb.MethodOptions)(nil),  // 32: google.protobuf.MethodOptions
@@ -2305,7 +2305,7 @@ var file_garm_tool_v1_tool_proto_depIdxs = []int32{
 	23, // 26: garm.tool.v1.ToolPolicy.guidance:type_name -> garm.tool.v1.Guidance
 	26, // 27: garm.tool.v1.ToolPolicy.authorization:type_name -> garm.tool.v1.Authorization
 	27, // 28: garm.tool.v1.ToolPolicy.audit:type_name -> garm.tool.v1.Audit
-	29, // 29: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.toolv1.Decl
+	29, // 29: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.v1.Decl
 	31, // 30: garm.tool.v1.field_policy:extendee -> google.protobuf.FieldOptions
 	32, // 31: garm.tool.v1.tool:extendee -> google.protobuf.MethodOptions
 	33, // 32: garm.tool.v1.default_field_policy:extendee -> google.protobuf.MessageOptions
