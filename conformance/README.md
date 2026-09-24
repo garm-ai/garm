@@ -15,6 +15,7 @@ cases/
   L6-omit-without-presence/         omit needs `optional`, or redacted and empty look the same
   L14-L21-destructive-unsupervised/ a destructive tool must declare approval and audit
   L3-name-reused-across-packages/   short names are unique across the WHOLE catalogue
+  L30-flattened-name-too-long/      a name a client sees must fit in 63 characters
 ```
 
 ## Running
@@ -50,7 +51,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Six cases against 27 rules. This is a reference, not an exhaustive matrix:
+Seven cases against 27 rules. This is a reference, not an exhaustive matrix:
 the rules themselves are covered by unit tests in `internal/compiler`, which is
 the right place for a rule's edges. What belongs here is the handful a schema
 author actually trips over, written so the message and the `.proto` that

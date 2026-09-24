@@ -257,7 +257,7 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 	// both already constrained to characters that survive flattening.
 	if flat := flatFQN(string(t.Method.ParentFile().Package()), t.Name); len(flat) > maxFlatFQN {
 		out = append(out, Diag{Rule: "L30", Path: path, Warn: true, Msg: fmt.Sprintf(
-			"flattened name %q is %d characters; a function-calling client allows %d. "+
+			"flattened name %q is %d characters; the budget is %d. "+
 				"Harmless while clients see the short name, and a call to the wrong tool "+
 				"if they ever see this one. Shorten the proto package or the tool name",
 			flat, len(flat), maxFlatFQN)})
@@ -289,8 +289,15 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 // already emits duplicates when a tool's request and response are the same
 // type; deduplication belongs at the printing layer, not here, where
 // dropping a repeat would mean dropping the path that names it.
-// maxFlatFQN is the function-calling name budget: ^[a-zA-Z0-9_-]{1,64}$.
-const maxFlatFQN = 64
+// maxFlatFQN is the budget for a name a client sees.
+//
+// Function-calling APIs allow 64 characters. This is 63, deliberately: the
+// limit is not uniform across clients, it is enforced at the far end of a
+// chain garm does not control, and the failure mode of being one over is a
+// silently truncated name — which is a call to the wrong tool. One character
+// of headroom costs an author nothing and removes a whole class of "works on
+// our client" report.
+const maxFlatFQN = 63
 
 // flatFQN is the name a client sees — the FQN with dots replaced, because
 // dots are not valid in a function-calling name.
