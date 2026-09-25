@@ -26,3 +26,7 @@ coverage.*
 # mise.local.toml is for a contributor pinning something for themselves.
 mise.local.toml
 .mise.local.toml
+
+# Catalogue artifacts are built, not committed. Running `garm catalogue
+# build` while testing is the easy way to leave a multi-megabyte file here.
+*.binpb
