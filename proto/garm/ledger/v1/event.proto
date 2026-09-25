@@ -1,0 +1,130 @@
+// The record of one call, on the wire.
+//
+// This is the transport form of contracts/ledger.Event. It exists as a proto
+// rather than as JSON of the Go struct because the thing that READS it is a
+// different binary, in a different repository, with a different release
+// cadence — and may one day not be Go at all. A Go struct serialised to JSON
+// is a schema with no versioning story and no way to add a field without
+// hoping every reader tolerated it.
+//
+// It is deliberately SELF-CONTAINED: nothing here imports the tool contract.
+// A forwarder that turns these into Parquet has no business linking the
+// annotation schema, the policy compiler, or anything else it would inherit
+// by importing garm.tool.v1.
+syntax = "proto3";
+
+package garm.ledger.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/garm-ai/garm/contracts/garm/ledger/v1;ledgerv1";
+
+// Event is one call, published on garm.v1.ledger.<tenant>.<app> or
+// garm.v1.audit.<tenant>.<app>.
+//
+// Delivery is at-least-once, so the lake WILL hold duplicates and consumers
+// must dedupe on event_id. That is not a defect to be engineered away: the
+// alternative to at-least-once is at-most-once, which for a ledger means
+// losing rows on exactly the failures anyone would want a row for.
+message Event {
+  // event_id is the idempotency key, and it must be assigned ONCE, when the
+  // event is created — never at publish time.
+  //
+  // A publisher that generates it while sending gives a retried batch new
+  // ids, so the duplicates it produces are indistinguishable from distinct
+  // calls and dedupe silently stops working. The whole at-least-once story
+  // rests on this one field being stable across retries.
+  string event_id = 1;
+  google.protobuf.Timestamp time = 2;
+
+  // Attribution: who and what, independent of the call itself.
+  string tenant = 10;
+  string app = 11;
+  string feature = 12;
+  string run_id = 13;
+  string correlation_id = 14;
+  string causation_id = 15;
+  string budget_id = 16;
+  map<string, string> tags = 17;
+
+  // The generation plane's half. Empty on a tool call, and that is how the
+  // two are told apart in the lake — one Event type for both planes, because
+  // "what did this agent cost and what did it touch" is one question.
+  string prompt_name = 20; // "raw" for message-path calls
+  string prompt_hash = 21;
+  string alias = 22;
+  string resolved_model = 23;
+  bool model_overridden = 24;
+
+  Usage usage = 30;
+  double cost_usd = 31;
+  string cost_source = 32; // "computed", or empty when no price is known
+  int64 latency_ms = 33;
+
+  string provider_request_id = 40;
+  bool fallback_used = 41;
+  // "ok" | "error" | "interrupted" | "denied" | "intent".
+  //
+  // "intent" is an audit-stream row written BEFORE the call ran, and it never
+  // appears in the ledger. An intent with no matching outcome means a call
+  // was authorised, started, and never accounted for.
+  string outcome = 42;
+  string error_kind = 43;
+
+  string policy_mode = 50;
+  repeated string policy_violations = 51;
+
+  // The tool plane's half: paths and plan hashes only.
+  //
+  // No redacted VALUE may reach here. The ledger is queried by people who are
+  // not the caller and is retained far longer than any response, so a value
+  // withheld from the caller and written here would be disclosed to a wider
+  // audience for longer — the precise inversion the redaction prevented.
+  string tool = 60;
+  string principal_subject = 61;
+  string principal_actor = 62;
+  string principal_kind = 63;
+  int32 chain_depth = 64;
+  string clearance_effective = 65;
+  repeated string compartments_effective = 66;
+  string redaction_plan = 67;
+  int32 redaction_count = 68;
+  int32 disclosed_count = 69;
+
+  // error_detail is the pre-scrub error text, and the ONLY field here that
+  // may carry unsanitized free text.
+  //
+  // A resolver error routinely interpolates the value it was protecting
+  // ("user with email ada@corp.com not found") and the response sanitizer
+  // never sees it. What reaches the caller is a code and a static message;
+  // the detail lands here so it is not simply destroyed — destroying it is
+  // the pressure that makes someone log the error inside a handler and leak
+  // exactly what the scrubbing prevented.
+  //
+  // It therefore inherits the retention and access controls of the most
+  // sensitive field of the tool that produced it. A lake that treats this
+  // column like the others has undone the redaction.
+  string error_detail = 70;
+}
+
+message Usage {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 cached_tokens = 3;
+  int64 reasoning_tokens = 4;
+}
+
+// Batch is what a publisher actually sends, and the reason it exists is the
+// publisher's cost rather than the reader's convenience.
+//
+// One JetStream publish per call means one in-flight ack and one goroutine
+// per call, and a bounded pending window that, once full, silently degrades
+// metering to log lines under exactly the load worth metering. Batching
+// amortises all three.
+//
+// The audit stream never uses this. A fail_closed tool's intent must be
+// durable BEFORE the tool runs, and a batched write is by definition not yet
+// written — batching a write-ahead is the same as not having one.
+message Batch {
+  repeated Event events = 1;
+}

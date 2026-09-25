@@ -59,3 +59,58 @@ func MicroServiceName(service string) string {
 func EndpointName(fullMethod string) string {
 	return MicroServiceName(Subject(fullMethod))
 }
+
+// Where a record goes.
+//
+// Two streams, not one. The ledger degrades and the audit stream may refuse a
+// call, so they differ in retention, in replication, and above all in what
+// happens when they fill: an audit stream must refuse new writes rather than
+// discard old ones, and a ledger must do the opposite. Sharing a stream would
+// mean choosing one of those policies for both, and would let metering volume
+// evict the records someone is legally obliged to keep.
+//
+// The prefixes are fixed rather than configurable. A configurable prefix is a
+// way for a publisher and its forwarder to disagree silently — the publisher
+// succeeds, the stream never sees the subject, and nothing reports an error
+// because publishing to a subject nobody consumes is not an error. Isolating
+// environments is what NATS accounts are for.
+const (
+	LedgerStream  = "GARM_LEDGER"
+	LedgerSubject = "garm.v1.ledger"
+
+	AuditStream  = "GARM_AUDIT"
+	AuditSubject = "garm.v1.audit"
+)
+
+// LedgerSubjectFor and AuditSubjectFor place a record under its tenant and
+// app, so a consumer can filter to one without reading the rest and a stream
+// can be sharded by tenant later without moving anything.
+func LedgerSubjectFor(tenant, app string) string {
+	return LedgerSubject + "." + token(tenant) + "." + token(app)
+}
+
+func AuditSubjectFor(tenant, app string) string {
+	return AuditSubject + "." + token(tenant) + "." + token(app)
+}
+
+// token makes an arbitrary string safe as ONE subject element.
+//
+// A tenant called "acme.corp" would otherwise silently become two elements,
+// so `garm.v1.audit.acme.corp.*` would match where the consumer expected
+// `garm.v1.audit.<tenant>.<app>` — records landing in a place no filter looks.
+// The wildcards are worse: a tenant named ">" subscribes to everything.
+//
+// Empty becomes "_" because a subject may not contain an empty element, and a
+// record with no tenant still has to land somewhere.
+func token(s string) string {
+	if s == "" {
+		return "_"
+	}
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '.', '*', '>', ' ', '\t', '\n', '\r':
+			return '_'
+		}
+		return r
+	}, s)
+}

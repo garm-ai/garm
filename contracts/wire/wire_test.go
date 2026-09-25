@@ -1,6 +1,7 @@
 package wire_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/garm-ai/garm/contracts/wire"
@@ -58,4 +59,50 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// A tenant name must never become two subject elements.
+//
+// "acme.corp" would otherwise land on garm.v1.audit.acme.corp.<app>, which is
+// one element deeper than any consumer filters for — the publish succeeds,
+// nothing consumes it, and no error is reported anywhere, because publishing
+// to a subject with no subscriber is not an error in NATS. For the audit
+// stream that is a record silently not kept.
+func TestASubjectElementCannotEscapeItsPosition(t *testing.T) {
+	for _, tenant := range []string{"acme.corp", "a b", "x\ty", "a\nb"} {
+		got := wire.AuditSubjectFor(tenant, "app")
+		if n := strings.Count(got, "."); n != 4 {
+			t.Errorf("AuditSubjectFor(%q) = %q, which has %d separators and not 4; "+
+				"the tenant escaped its element", tenant, got, n)
+		}
+	}
+}
+
+// The wildcards are the dangerous case: a tenant named ">" would subscribe a
+// naive consumer to everything, and a tenant named "*" matches any sibling.
+func TestATenantCannotSmuggleAWildcard(t *testing.T) {
+	for _, tenant := range []string{">", "*", "a>b", "a*b"} {
+		got := wire.LedgerSubjectFor(tenant, "app")
+		if strings.ContainsAny(got[len(wire.LedgerSubject):], "*>") {
+			t.Errorf("LedgerSubjectFor(%q) = %q; a wildcard reached the subject", tenant, got)
+		}
+	}
+}
+
+// Empty is a real case — not every event has a tenant — and a subject may not
+// contain an empty element.
+func TestAnEmptyElementBecomesAPlaceholder(t *testing.T) {
+	if got, want := wire.AuditSubjectFor("", ""), "garm.v1.audit._._"; got != want {
+		t.Errorf("AuditSubjectFor(\"\", \"\") = %q, want %q", got, want)
+	}
+}
+
+// The two streams must not share a subject space. If they did, one stream's
+// retention and discard policy would silently apply to both.
+func TestTheLedgerAndAuditSubjectsDoNotOverlap(t *testing.T) {
+	if strings.HasPrefix(wire.AuditSubject, wire.LedgerSubject) ||
+		strings.HasPrefix(wire.LedgerSubject, wire.AuditSubject) {
+		t.Errorf("%q and %q overlap, so a stream capturing one would capture the other",
+			wire.LedgerSubject, wire.AuditSubject)
+	}
 }

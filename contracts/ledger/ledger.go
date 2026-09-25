@@ -56,6 +56,17 @@ const (
 )
 
 type Event struct {
+	// ID is the idempotency key, and it is assigned when the event is
+	// CREATED rather than when it is published.
+	//
+	// Delivery to the lake is at-least-once, so consumers dedupe on this.
+	// That only works if a redelivered event carries the same id it carried
+	// the first time — and a publisher that generated ids while sending
+	// would give every retry a fresh one, making its duplicates
+	// indistinguishable from distinct calls. The whole dedupe story rests on
+	// this being stable from the moment the call is observed.
+	ID string
+
 	Time time.Time
 
 	Tenant        string
