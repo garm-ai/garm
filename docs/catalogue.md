@@ -85,6 +85,38 @@ tools loads a fifty-tool catalogue and pays about half a megabyte.
 For calibration, 10,000 is a stress case. A few hundred tools — a realistic
 catalogue — costs single-digit megabytes.
 
+## Starting from nothing
+
+```console
+$ garm init .
+wrote third_party/proto/garm/tool/v1/tool.proto
+wrote buf.yaml
+wrote buf.gen.yaml
+
+$ go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@latest
+$ # write proto/your/v1/service.proto, annotated
+$ garm lint && garm gen && garm catalogue build -o catalogue.binpb
+```
+
+`garm gen` produces three things from one `.proto`: the messages, connect
+handlers, and the **tool binding** — a typed Handler interface, a `Serve` that
+registers it against a runtime, and the contract version and descriptor hash
+the service advertises so a daemon can tell whether it is running the contract
+the catalogue declares.
+
+Two details in the scaffold that are not preferences:
+
+**The vendored annotations go under `third_party/proto`, as their own buf
+module.** Every module in a buf v2 workspace is an input, so annotations
+living under `proto/` get Go generated for them — output that is never usable,
+because the real one is in `garm/contracts` and two packages registering one
+proto file panic at init.
+
+**The binding is generated with `package_suffix`.** Colocated, it references
+the connect Handler from its own connect sibling, and that sibling imports the
+base package back for message types: a two-package import cycle nothing can
+break from the outside.
+
 ## Building one
 
 ```console

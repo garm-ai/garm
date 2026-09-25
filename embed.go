@@ -18,10 +18,18 @@ import _ "embed"
 //go:embed proto/garm/tool/v1/tool.proto
 var AnnotationsProto []byte
 
-// AnnotationsPath is where AnnotationsProto belongs in a consumer's tree.
-// The path is part of the contract: an import of "garm/tool/v1/tool.proto"
-// has to resolve, so this is not a preference.
-const AnnotationsPath = "proto/garm/tool/v1/tool.proto"
+// VendoredAnnotationsPath is where AnnotationsProto belongs in a consumer's
+// tree.
+//
+// Under third_party rather than beside your own protos, and that is not
+// cosmetic: every module in a buf v2 workspace is an input, so annotations
+// living under proto/ get Go generated for them — output that is never
+// usable, because the real one is in this module's contracts package and two
+// packages registering one proto file panic at init.
+//
+// The tail of the path is part of the contract: an import of
+// "garm/tool/v1/tool.proto" has to resolve, so only the root is a choice.
+const VendoredAnnotationsPath = "third_party/proto/garm/tool/v1/tool.proto"
 
 // AnnotationSchemaVersion is the version of the garm.tool.v1 vocabulary this
 // build speaks, stamped into every catalogue it produces.

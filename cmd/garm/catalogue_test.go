@@ -211,3 +211,57 @@ service S {
 		}
 	}
 }
+
+// TestInitWiresTheToolPlugin guards the gap that made every scaffolded
+// repository need a manual fix.
+//
+// init used to write a buf.gen.yaml that generated messages and nothing else,
+// so the typed Handler interface, the Serve, the contract version and the
+// descriptor hash — the entire reason the generator exists — were absent
+// until someone worked out the config themselves. Two of the three settings
+// below are ones they would get wrong: package_suffix, without which the
+// binding forms an import cycle with its own connect sibling, and the connect
+// plugin the AsConnect adapter needs.
+//
+// Asserting on config text rather than on generated output because generating
+// needs buf and network. The end-to-end proof lives in garm-ai/examples,
+// which builds this exact shape against published artifacts.
+func TestInitWiresTheToolPlugin(t *testing.T) {
+	dir := t.TempDir()
+	root := newRoot()
+	root.SetArgs([]string{"init", dir})
+	root.SetOut(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	gen, err := os.ReadFile(filepath.Join(dir, "buf.gen.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct{ text, why string }{
+		{"protoc-gen-garm-go", "the tool binding is not generated at all"},
+		{"emit=toolsdk", "emit defaults to garm's own wiring, which belongs nowhere near a tool service"},
+		{"package_suffix=micro", "a colocated binding forms an import cycle with its own connect sibling"},
+		{"connectrpc/go", "the binding's AsConnect adapter has no connect handler to adapt to"},
+	} {
+		if !bytes.Contains(gen, []byte(want.text)) {
+			t.Errorf("buf.gen.yaml is missing %q: %s", want.text, want.why)
+		}
+	}
+
+	// The annotations must be a module of their own. Under proto/ they become
+	// an input rather than an import, and buf generates Go for them that can
+	// never be used — the real one is in this module's contracts package, and
+	// two packages registering one proto file panic at init.
+	buf, err := os.ReadFile(filepath.Join(dir, "buf.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf, []byte("third_party/proto")) {
+		t.Error("buf.yaml does not put the vendored annotations in their own module")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "third_party", "proto", "garm", "tool", "v1", "tool.proto")); err != nil {
+		t.Errorf("annotations are not where buf.yaml says they are: %v", err)
+	}
+}

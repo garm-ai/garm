@@ -12,14 +12,24 @@ import (
 	garm "github.com/garm-ai/garm"
 )
 
-// bufYAML and bufGenYAML are what `garm init` writes beside the vendored
-// annotations. They name protoc-gen-garm-go as a PATH-discovered local
-// plugin — the shape people expect — rather than the `[garm, protoc-gen-go]`
-// form, which works too but reads as unusual in a file someone else will
-// maintain.
 const bufYAML = `version: v2
 modules:
+  # Your protos. The only module anything is generated from.
   - path: proto
+  # The garm annotations, vendored by ` + "`garm init`" + `.
+  #
+  # A module of their own so they can be imported by their real path —
+  # "garm/tool/v1/tool.proto" — while staying OUT of what is generated. Every
+  # module in a buf v2 workspace is an input, so annotations living under
+  # proto/ would have Go generated for them; that output is never usable,
+  # because the real one already exists in github.com/garm-ai/garm/contracts
+  # and two packages registering one proto file panic at init.
+  #
+  # BASIC lint because the rules meant for a contract you publish have no
+  # business judging a file you vendored.
+  - path: third_party/proto
+    lint:
+      use: [BASIC]
 lint:
   use: [STANDARD]
 breaking:
@@ -28,23 +38,46 @@ breaking:
 
 const bufGenYAML = `version: v2
 inputs:
+  # Your module only. third_party is a dependency, not an input.
   - directory: proto
 plugins:
-  # Messages and services.
+  # Messages.
   - remote: buf.build/protocolbuffers/go
     out: gen
     opt: paths=source_relative
+    include_imports: false
+
+  # Connect handlers. Needed because the garm binding below emits an
+  # AsConnect adapter, so the same handlers can also be served over HTTP.
   - remote: buf.build/connectrpc/go
     out: gen
     opt: paths=source_relative
-  # The governed tool binding. Install with:
+    include_imports: false
+
+  # The tool binding: a typed Handler interface, a Serve that registers it
+  # against a runtime, and the contract version and descriptor hash a service
+  # advertises so a daemon can tell whether it is running the contract the
+  # catalogue declares.
+  #
+  # Install with:
   #   go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@latest
   # or replace this entry with:
   #   - local: [garm, protoc-gen-go]
   # to use the CLI you already have.
   - local: protoc-gen-garm-go
     out: gen
-    opt: paths=source_relative,emit=toolsdk
+    # emit=toolsdk is the consumer half — what a tool author implements.
+    # emit=server is garm's own wiring and belongs nowhere near a tool service.
+    #
+    # package_suffix puts the binding in a sibling package, and it is not
+    # optional. Colocated, the binding references the connect Handler from its
+    # own connect sibling, and that sibling imports the base package back for
+    # message types: a two-package import cycle that nothing can break from
+    # the outside.
+    #
+    # contract_version stamps what the service advertises. A build should pass
+    # its own tag here.
+    opt: paths=source_relative,emit=toolsdk,package_suffix=micro,contract_version=v0.0.0-dev
 `
 
 func newInitCmd() *cobra.Command {
@@ -78,7 +111,7 @@ func runInit(cmd *cobra.Command, dir string, force bool) error {
 		path string
 		body []byte
 	}{
-		{garm.AnnotationsPath, garm.AnnotationsProto},
+		{garm.VendoredAnnotationsPath, garm.AnnotationsProto},
 		{"buf.yaml", []byte(bufYAML)},
 		{"buf.gen.yaml", []byte(bufGenYAML)},
 	}
@@ -114,9 +147,17 @@ func runInit(cmd *cobra.Command, dir string, force bool) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), `
 Next:
-  1. Write a service in proto/ and annotate it: (garm.tool.v1.tool)
-  2. go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@latest
-  3. garm lint && garm gen
+  1. go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@latest
+  2. Write a service in proto/ and annotate it: (garm.tool.v1.tool)
+  3. garm lint
+  4. garm gen            -> a typed Handler interface and a Serve for it
+  5. garm catalogue build -> the artifact a daemon loads
+
+Implement the generated Handler interface, then register it:
+
+    svc := garmtool.New("my-service", version)
+    if err := <pkg>micro.Serve<Service>(svc, myHandlers{}); err != nil { ... }
+    return svc.Run(ctx, nc)
 `)
 	return nil
 }
