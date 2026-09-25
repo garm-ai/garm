@@ -24,7 +24,7 @@ func newCatalogueCmd() *cobra.Command {
 		Short: "Build and inspect the artifact a daemon serves",
 		RunE:  func(c *cobra.Command, _ []string) error { return c.Help() },
 	}
-	cmd.AddCommand(newCatalogueBuildCmd())
+	cmd.AddCommand(newCatalogueBuildCmd(), newCatalogueDiffCmd())
 	return cmd
 }
 
