@@ -86,9 +86,30 @@ type Catalogue struct {
 	// there is one schema per (tool, clearance, compartments) rather than one
 	// per tool. The only schema that could be precomputed is the unprojected
 	// one, which is exactly the one that must never be served.
-	FieldDocs     map[string]string `protobuf:"bytes,6,rep,name=field_docs,json=fieldDocs,proto3" json:"field_docs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	FieldDocs map[string]string `protobuf:"bytes,6,rep,name=field_docs,json=fieldDocs,proto3" json:"field_docs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The descriptor hash of each proto package that declares tools, keyed by
+	// proto package name.
+	//
+	// This is what makes reconciliation possible, and without it the system's
+	// central promise is an assumption. A service advertises the same digest on
+	// $SRV.INFO, computed by the generator from the same descriptors; a daemon
+	// compares the two and refuses to route on a mismatch.
+	//
+	// It has to be here rather than recomputed at load. Protobuf's wire format
+	// is permissive by design — unknown fields ignored, absent fields
+	// defaulted — so a service built from a different contract does not fail,
+	// it ANSWERS, with fields read as something else. Governed, ledgered, and
+	// wrong. A mismatch that nothing detects is the only failure mode in this
+	// design that does not announce itself.
+	//
+	// Covers the wire shape only: field number, name, cardinality and kind,
+	// transitively. Not comments, not options, not the garm annotations —
+	// those change redaction, which happens after the response returns, and a
+	// hash that moved when a clearance changed would mark every service
+	// incompatible over something that cannot break unmarshalling.
+	DescriptorHashes map[string]string `protobuf:"bytes,7,rep,name=descriptor_hashes,json=descriptorHashes,proto3" json:"descriptor_hashes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Catalogue) Reset() {
@@ -159,6 +180,13 @@ func (x *Catalogue) GetProvenance() *Provenance {
 func (x *Catalogue) GetFieldDocs() map[string]string {
 	if x != nil {
 		return x.FieldDocs
+	}
+	return nil
+}
+
+func (x *Catalogue) GetDescriptorHashes() map[string]string {
+	if x != nil {
+		return x.DescriptorHashes
 	}
 	return nil
 }
@@ -243,7 +271,7 @@ var File_garm_catalogue_v1_catalogue_proto protoreflect.FileDescriptor
 
 const file_garm_catalogue_v1_catalogue_proto_rawDesc = "" +
 	"\n" +
-	"!garm/catalogue/v1/catalogue.proto\x12\x11garm.catalogue.v1\x1a\x17garm/tool/v1/tool.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb3\x03\n" +
+	"!garm/catalogue/v1/catalogue.proto\x12\x11garm.catalogue.v1\x1a\x17garm/tool/v1/tool.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd9\x04\n" +
 	"\tCatalogue\x12:\n" +
 	"\x19annotation_schema_version\x18\x01 \x01(\rR\x17annotationSchemaVersion\x128\n" +
 	"\x05files\x18\x02 \x01(\v2\".google.protobuf.FileDescriptorSetR\x05files\x126\n" +
@@ -253,8 +281,12 @@ const file_garm_catalogue_v1_catalogue_proto_rawDesc = "" +
 	"provenance\x18\x05 \x01(\v2\x1d.garm.catalogue.v1.ProvenanceR\n" +
 	"provenance\x12J\n" +
 	"\n" +
-	"field_docs\x18\x06 \x03(\v2+.garm.catalogue.v1.Catalogue.FieldDocsEntryR\tfieldDocs\x1a<\n" +
+	"field_docs\x18\x06 \x03(\v2+.garm.catalogue.v1.Catalogue.FieldDocsEntryR\tfieldDocs\x12_\n" +
+	"\x11descriptor_hashes\x18\a \x03(\v22.garm.catalogue.v1.Catalogue.DescriptorHashesEntryR\x10descriptorHashes\x1a<\n" +
 	"\x0eFieldDocsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aC\n" +
+	"\x15DescriptorHashesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x01\n" +
 	"\n" +
@@ -276,27 +308,29 @@ func file_garm_catalogue_v1_catalogue_proto_rawDescGZIP() []byte {
 	return file_garm_catalogue_v1_catalogue_proto_rawDescData
 }
 
-var file_garm_catalogue_v1_catalogue_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_garm_catalogue_v1_catalogue_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_garm_catalogue_v1_catalogue_proto_goTypes = []any{
 	(*Catalogue)(nil),                      // 0: garm.catalogue.v1.Catalogue
 	(*Provenance)(nil),                     // 1: garm.catalogue.v1.Provenance
 	nil,                                    // 2: garm.catalogue.v1.Catalogue.FieldDocsEntry
-	(*descriptorpb.FileDescriptorSet)(nil), // 3: google.protobuf.FileDescriptorSet
-	(*v1.Decl)(nil),                        // 4: garm.tool.v1.Decl
-	(*timestamppb.Timestamp)(nil),          // 5: google.protobuf.Timestamp
+	nil,                                    // 3: garm.catalogue.v1.Catalogue.DescriptorHashesEntry
+	(*descriptorpb.FileDescriptorSet)(nil), // 4: google.protobuf.FileDescriptorSet
+	(*v1.Decl)(nil),                        // 5: garm.tool.v1.Decl
+	(*timestamppb.Timestamp)(nil),          // 6: google.protobuf.Timestamp
 }
 var file_garm_catalogue_v1_catalogue_proto_depIdxs = []int32{
-	3, // 0: garm.catalogue.v1.Catalogue.files:type_name -> google.protobuf.FileDescriptorSet
-	4, // 1: garm.catalogue.v1.Catalogue.compartments:type_name -> garm.tool.v1.Decl
-	4, // 2: garm.catalogue.v1.Catalogue.tool_sets:type_name -> garm.tool.v1.Decl
+	4, // 0: garm.catalogue.v1.Catalogue.files:type_name -> google.protobuf.FileDescriptorSet
+	5, // 1: garm.catalogue.v1.Catalogue.compartments:type_name -> garm.tool.v1.Decl
+	5, // 2: garm.catalogue.v1.Catalogue.tool_sets:type_name -> garm.tool.v1.Decl
 	1, // 3: garm.catalogue.v1.Catalogue.provenance:type_name -> garm.catalogue.v1.Provenance
 	2, // 4: garm.catalogue.v1.Catalogue.field_docs:type_name -> garm.catalogue.v1.Catalogue.FieldDocsEntry
-	5, // 5: garm.catalogue.v1.Provenance.built_at:type_name -> google.protobuf.Timestamp
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 5: garm.catalogue.v1.Catalogue.descriptor_hashes:type_name -> garm.catalogue.v1.Catalogue.DescriptorHashesEntry
+	6, // 6: garm.catalogue.v1.Provenance.built_at:type_name -> google.protobuf.Timestamp
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_garm_catalogue_v1_catalogue_proto_init() }
@@ -310,7 +344,7 @@ func file_garm_catalogue_v1_catalogue_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_garm_catalogue_v1_catalogue_proto_rawDesc), len(file_garm_catalogue_v1_catalogue_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

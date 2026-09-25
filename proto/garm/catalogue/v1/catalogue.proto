@@ -73,6 +73,28 @@ message Catalogue {
   // per tool. The only schema that could be precomputed is the unprojected
   // one, which is exactly the one that must never be served.
   map<string, string> field_docs = 6;
+
+  // The descriptor hash of each proto package that declares tools, keyed by
+  // proto package name.
+  //
+  // This is what makes reconciliation possible, and without it the system's
+  // central promise is an assumption. A service advertises the same digest on
+  // $SRV.INFO, computed by the generator from the same descriptors; a daemon
+  // compares the two and refuses to route on a mismatch.
+  //
+  // It has to be here rather than recomputed at load. Protobuf's wire format
+  // is permissive by design — unknown fields ignored, absent fields
+  // defaulted — so a service built from a different contract does not fail,
+  // it ANSWERS, with fields read as something else. Governed, ledgered, and
+  // wrong. A mismatch that nothing detects is the only failure mode in this
+  // design that does not announce itself.
+  //
+  // Covers the wire shape only: field number, name, cardinality and kind,
+  // transitively. Not comments, not options, not the garm annotations —
+  // those change redaction, which happens after the response returns, and a
+  // hash that moved when a clearance changed would mark every service
+  // incompatible over something that cannot break unmarshalling.
+  map<string, string> descriptor_hashes = 7;
 }
 
 // Provenance is what a human needs to answer "where did this come from".

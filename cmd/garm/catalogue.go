@@ -94,12 +94,26 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, out, source string, stampTi
 		f.SourceCodeInfo = nil
 	}
 
+	// One hash per proto package, matching how the generator emits them: a
+	// binding is per package, so a service serves one package and advertises
+	// one digest.
+	byPkg := map[string][]compiler.Tool{}
+	for _, t := range tools {
+		pkg := string(t.Method.ParentFile().Package())
+		byPkg[pkg] = append(byPkg[pkg], t)
+	}
+	hashes := make(map[string]string, len(byPkg))
+	for pkg, ts := range byPkg {
+		hashes[pkg] = compiler.DescriptorHash(ts)
+	}
+
 	cat := &cataloguev1.Catalogue{
 		AnnotationSchemaVersion: garm.AnnotationSchemaVersion,
 		Files:                   set,
 		Compartments:            compiler.DeclaredCompartments(fds),
 		ToolSets:                compiler.DeclaredSets(fds),
 		FieldDocs:               docs,
+		DescriptorHashes:        hashes,
 		Provenance: &cataloguev1.Provenance{
 			Producer: "garm/" + version(),
 			Compiler: compile.Version(),
@@ -132,8 +146,8 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, out, source string, stampTi
 
 	sum := sha256.Sum256(body)
 	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", out)
-	fmt.Fprintf(cmd.OutOrStdout(), "  %d tool(s), %d file(s), %d documented field(s), schema v%d\n",
-		len(tools), len(set.GetFile()), len(docs), garm.AnnotationSchemaVersion)
+	fmt.Fprintf(cmd.OutOrStdout(), "  %d tool(s) in %d package(s), %d file(s), %d documented field(s), schema v%d\n",
+		len(tools), len(hashes), len(set.GetFile()), len(docs), garm.AnnotationSchemaVersion)
 	fmt.Fprintf(cmd.OutOrStdout(), "  digest sha256:%s\n", hex.EncodeToString(sum[:]))
 	// The FQN is proto package + resolved tool name, split at the last dot
 	// by everything that consumes it. Built here rather than read off Tool

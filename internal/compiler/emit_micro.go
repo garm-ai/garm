@@ -299,6 +299,14 @@ func emitMicroToolRefs(g *protogen.GeneratedFile, svc string, tools []microTool)
 // the wire. Hashing them would move DescriptorHash on a clearance change
 // that cannot break a single client — see this function's callers' doc
 // comment.
+// DescriptorHash is the digest a service advertises and a catalogue records.
+//
+// Exported so the catalogue builder can stamp the same value the generator
+// emits. One implementation, deliberately: a hash computed two ways is a hash
+// that eventually disagrees with itself, and the whole point of this one is
+// that two sides can compare it.
+func DescriptorHash(tools []Tool) string { return descriptorHash(tools) }
+
 func descriptorHash(tools []Tool) string {
 	h := sha256.New()
 	visited := map[protoreflect.FullName]bool{}
