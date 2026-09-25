@@ -40,6 +40,19 @@ const (
 	OutcomeError       Outcome = "error"
 	OutcomeInterrupted Outcome = "interrupted"
 	OutcomeDenied      Outcome = "denied" // blocked by policy under mode: enforce; no provider call
+
+	// OutcomeIntent is an audit row written BEFORE the call runs, naming what
+	// is about to be attempted.
+	//
+	// It exists for fail_closed (see contracts/audit): an irreversible tool
+	// records its intent and refuses to proceed if that record cannot be
+	// made, because recording afterwards and failing the response would tell
+	// the caller nothing happened when it did. An intent row with no matching
+	// outcome row is therefore a real signal — the call was authorised and
+	// started, and something stopped before it finished.
+	//
+	// It never appears in the ledger, only in the audit stream.
+	OutcomeIntent Outcome = "intent"
 )
 
 type Event struct {

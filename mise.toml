@@ -45,11 +45,17 @@ description = "Fail if the generated tree is stale"
 # fail on any unrelated edit in the working directory, which is right in CI
 # and misleading everywhere else — and a check that cries wolf locally is a
 # check people stop running before they push.
+#
+# contracts/garm, not contracts. buf writes with `out: contracts` but only
+# ever into contracts/garm; the siblings — ledger, wire, callctx, audit — are
+# hand-written Go. Watching the parent meant any uncommitted edit to one of
+# those failed with "generated output is stale", which sends whoever reads it
+# looking for a generator that was never involved.
 run = """
 mise run gen
-if ! git diff --quiet -- contracts policy/testdata; then
+if ! git diff --quiet -- contracts/garm policy/testdata; then
   echo "generated output is stale — run 'mise run gen' and commit:" >&2
-  git diff --stat -- contracts policy/testdata >&2
+  git diff --stat -- contracts/garm policy/testdata >&2
   exit 1
 fi
 """
