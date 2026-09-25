@@ -760,6 +760,29 @@ func renderMicroFor(t *testing.T, protoPackage string) string {
 	return renderMicroFromFD(t, microAccountsFixture(protoPackage))
 }
 
+// renderMicroDefault renders with the plugin's real defaults, which is what a
+// tool author gets without asking for anything.
+func renderMicroDefault(t *testing.T) string {
+	t.Helper()
+	fd := microAccountsFixture("garm.demo.v1beta1")
+	gen := buildEmitPlugin(t, fd)
+	f := gen.FilesByPath[fd.GetName()]
+	tools, err := compiler.Tools([]protoreflect.FileDescriptor{f.Desc})
+	if err != nil {
+		t.Fatalf("Tools: %v", err)
+	}
+	g := gen.NewGeneratedFile("micro_default.pb.go", f.GoImportPath)
+	if err := compiler.EmitMicro(g, []*protogen.File{f}, f.GoPackageName, tools, "dev",
+		compiler.MicroOptions{}); err != nil {
+		t.Fatalf("EmitMicro: %v", err)
+	}
+	out, err := g.Content()
+	if err != nil {
+		t.Fatalf("Content: %v", err)
+	}
+	return string(out)
+}
+
 // renderMicroFromFD is renderMicroFor's shared plumbing, factored out so a
 // test that needs a fixture shape renderMicroFor's own (fixed) one cannot
 // express — see hashFixture below — can still drive compiler.EmitMicro
@@ -779,7 +802,7 @@ func renderMicroFromFD(t *testing.T, fd *descriptorpb.FileDescriptorProto) strin
 	filename := path.Join(path.Dir(f.GeneratedFilenamePrefix), string(outPkg), string(outPkg)) + "_micro.pb.go"
 
 	g := gen.NewGeneratedFile(filename, outImportPath)
-	if err := compiler.EmitMicro(g, []*protogen.File{f}, outPkg, tools, "dev"); err != nil {
+	if err := compiler.EmitMicro(g, []*protogen.File{f}, outPkg, tools, "dev", compiler.MicroOptions{ConnectAdapter: true}); err != nil {
 		t.Fatalf("EmitMicro: %v", err)
 	}
 	return gen.Response().GetFile()[0].GetContent()

@@ -47,13 +47,6 @@ plugins:
     opt: paths=source_relative
     include_imports: false
 
-  # Connect handlers. Needed because the garm binding below emits an
-  # AsConnect adapter, so the same handlers can also be served over HTTP.
-  - remote: buf.build/connectrpc/go
-    out: gen
-    opt: paths=source_relative
-    include_imports: false
-
   # The tool binding: a typed Handler interface, a Serve that registers it
   # against a runtime, and the contract version and descriptor hash a service
   # advertises so a daemon can tell whether it is running the contract the
@@ -64,20 +57,25 @@ plugins:
   # or replace this entry with:
   #   - local: [garm, protoc-gen-go]
   # to use the CLI you already have.
+  #
+  # There is no connect plugin here, and the binding is colocated rather than
+  # in a sibling package. Both used to be required: the binding emitted an
+  # AsConnect adapter, which referenced the connect handler in its own
+  # package's connect sibling, which imported the base package back for
+  # message types — a cycle nothing could break from outside. The adapter is
+  # now opt-in (connect_adapter=true), so neither cost is imposed by default.
+  #
+  # Your tool is reached over NATS by a daemon, which never speaks connect to
+  # it. To develop against the real thing locally, run the plane rather than
+  # bypassing it.
   - local: protoc-gen-garm-go
     out: gen
     # emit=toolsdk is the consumer half — what a tool author implements.
     # emit=server is garm's own wiring and belongs nowhere near a tool service.
     #
-    # package_suffix puts the binding in a sibling package, and it is not
-    # optional. Colocated, the binding references the connect Handler from its
-    # own connect sibling, and that sibling imports the base package back for
-    # message types: a two-package import cycle that nothing can break from
-    # the outside.
-    #
     # contract_version stamps what the service advertises. A build should pass
     # its own tag here.
-    opt: paths=source_relative,emit=toolsdk,package_suffix=micro,contract_version=v0.0.0-dev
+    opt: paths=source_relative,emit=toolsdk,contract_version=v0.0.0-dev
 `
 
 func newInitCmd() *cobra.Command {

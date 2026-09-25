@@ -104,11 +104,38 @@ func TestMicroToolRefsCarryContractIdentity(t *testing.T) {
 	}
 }
 
-func TestMicroEmitsConnectAdapter(t *testing.T) {
+func TestMicroEmitsConnectAdapterWhenAsked(t *testing.T) {
 	src := renderMicro(t)
 	if !strings.Contains(src, "func AccountsServiceAsConnect(h AccountsServiceHandler) demov1beta1connect.AccountsServiceHandler {") {
-		t.Error("the micro binding must emit a connect adapter so one implementation stays " +
-			"servable three ways (tools-server-design 2.5)")
+		t.Error("connect_adapter was set and no adapter was emitted")
+	}
+}
+
+// By default there is no adapter, and — the part that matters — no import of
+// the connect package either.
+//
+// An emitter that skipped the function but still registered the import would
+// leave every tool module depending on connectrpc.com/connect for nothing,
+// and would keep the import cycle that forces the binding into a sibling
+// package. The function is the visible half; the import is the expensive one.
+func TestMicroEmitsNoConnectAdapterByDefault(t *testing.T) {
+	src := renderMicroDefault(t)
+	if strings.Contains(src, "AsConnect") {
+		t.Error("an adapter was emitted without connect_adapter being set")
+	}
+	for _, unwanted := range []string{"connectrpc.com/connect", "demov1beta1connect"} {
+		if strings.Contains(src, unwanted) {
+			t.Errorf("the default binding still imports %q, so every tool module "+
+				"inherits the dependency and the sibling-package workaround it forces",
+				unwanted)
+		}
+	}
+	// The binding itself must be unaffected: this removes a bridge, not the
+	// thing being bridged.
+	for _, wanted := range []string{"AccountsServiceHandler", "ServeAccountsService", "DescriptorHash"} {
+		if !strings.Contains(src, wanted) {
+			t.Errorf("the default binding is missing %s", wanted)
+		}
 	}
 }
 

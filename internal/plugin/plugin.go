@@ -49,7 +49,8 @@ func Run() {
 	// wiring (var Tools, Mount(*toolplane.Core, ...), RegisterXService) —
 	// a tool author never calls it, and it imports toolplane, so it must
 	// stay in the parent module. "toolsdk" is what a tool author
-	// implements against (Handler, ServeX, XAsConnect) — it registers
+	// implements against (Handler, ServeX, and XAsConnect when
+	// connect_adapter is set) — it registers
 	// against toolbind.Registrar rather than importing a runtime, so it
 	// can live in the contracts module with no dependency on garm's own
 	// enforcement package. See internal/toolgen/emit_micro.go's doc
@@ -62,12 +63,22 @@ func Run() {
 	// branch; a real build passes the git tag here.
 	contractVersion := flagSet.String("contract_version", "dev",
 		"The ContractVersion stamped into a toolsdk binding's generated constant.")
+	// connect_adapter is off by default, and that default is a decision
+	// rather than caution. Emitting XAsConnect makes every tool module run a
+	// second plugin, inherit connectrpc.com/connect, and generate into a
+	// sibling package to dodge an import cycle with its own connect sibling.
+	// It was unconditional because garm once had a connect surface to mount
+	// the result on; it has none, and cannot build one from generated
+	// handlers while it dispatches on catalogue descriptors.
+	connectAdapter := flagSet.Bool("connect_adapter", false,
+		"Also emit XAsConnect, for a tool service that serves connect directly.")
 
 	protogen.Options{ParamFunc: flagSet.Set}.Run(func(gen *protogen.Plugin) error {
 		return generate(gen, os.Stderr, genOptions{
 			packageSuffix:   *packageSuffix,
 			emit:            *emit,
 			contractVersion: *contractVersion,
+			connectAdapter:  *connectAdapter,
 		})
 	})
 }
@@ -81,6 +92,7 @@ type genOptions struct {
 	packageSuffix   string
 	emit            string
 	contractVersion string
+	connectAdapter  bool
 }
 
 // generate is main's logic, pulled out of the protogen.Options.Run closure
@@ -182,7 +194,8 @@ func generate(gen *protogen.Plugin, diagOut io.Writer, opts genOptions) error {
 			// DescriptorHash being package-scoped constants forces that.
 			filename := path.Join(outDir, string(f0.GoPackageName)) + "_micro.pb.go"
 			g := gen.NewGeneratedFile(filename, outImportPath)
-			if err := compiler.EmitMicro(g, files, outPkg, tools, opts.contractVersion); err != nil {
+			if err := compiler.EmitMicro(g, files, outPkg, tools, opts.contractVersion,
+				compiler.MicroOptions{ConnectAdapter: opts.connectAdapter}); err != nil {
 				return err
 			}
 		default: // "server"

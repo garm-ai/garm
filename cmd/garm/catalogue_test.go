@@ -242,11 +242,23 @@ func TestInitWiresTheToolPlugin(t *testing.T) {
 	for _, want := range []struct{ text, why string }{
 		{"protoc-gen-garm-go", "the tool binding is not generated at all"},
 		{"emit=toolsdk", "emit defaults to garm's own wiring, which belongs nowhere near a tool service"},
-		{"package_suffix=micro", "a colocated binding forms an import cycle with its own connect sibling"},
-		{"connectrpc/go", "the binding's AsConnect adapter has no connect handler to adapt to"},
 	} {
 		if !bytes.Contains(gen, []byte(want.text)) {
 			t.Errorf("buf.gen.yaml is missing %q: %s", want.text, want.why)
+		}
+	}
+
+	// And what it must NOT scaffold. A tool service is reached over NATS by a
+	// daemon that never speaks connect to it, so neither of these buys the
+	// author anything — they were both consequences of the AsConnect adapter,
+	// which is now opt-in. Scaffolding them anyway would put a second plugin
+	// and a connectrpc dependency into every project that ran `garm init`.
+	for _, unwanted := range []struct{ text, why string }{
+		{"connectrpc/go", "a second plugin, for an adapter nothing in this stack consumes"},
+		{"package_suffix", "the sibling package only existed to dodge the connect import cycle"},
+	} {
+		if bytes.Contains(gen, []byte(unwanted.text)) {
+			t.Errorf("buf.gen.yaml still scaffolds %q: %s", unwanted.text, unwanted.why)
 		}
 	}
 
