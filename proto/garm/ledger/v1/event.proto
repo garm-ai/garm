@@ -105,6 +105,15 @@ message Event {
   // sensitive field of the tool that produced it. A lake that treats this
   // column like the others has undone the redaction.
   string error_detail = 70;
+
+  // execution_subject is the `exec.sub` of the caller's token: the runner that
+  // executed this call for someone else, empty when there was none.
+  //
+  // 71 rather than the 70 the program plan named: 70 is error_detail, which
+  // has been on the wire since the first release and is the one field here
+  // that may carry unsanitized text. Reusing it would make an old reader
+  // decode a subject as an error detail. See the program plan §7, D1.
+  string execution_subject = 71;
 }
 
 message Usage {

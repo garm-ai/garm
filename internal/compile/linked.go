@@ -21,4 +21,14 @@ package compile
 //
 // Blank import: nothing here calls protovalidate. The package's init registers
 // the descriptors, which is the whole purpose.
-import _ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+
+	// garm.agent.v1 is this module's own contract, but it is not reached
+	// transitively the way garm.tool.v1 is (the tool annotations arrive
+	// through internal/compiler). Linking it here makes
+	// "garm/agent/v1/agent.proto" resolvable by its real path in any tree
+	// this binary compiles, vendored or not — which is what `garm init`
+	// writes and what a conformance case imports.
+	_ "github.com/garm-ai/garm/contracts/garm/agent/v1"
+)

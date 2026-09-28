@@ -90,6 +90,7 @@ catalogue — costs single-digit megabytes.
 ```console
 $ garm init .
 wrote third_party/proto/garm/tool/v1/tool.proto
+wrote third_party/proto/garm/agent/v1/agent.proto
 wrote buf.yaml
 wrote buf.gen.yaml
 
@@ -174,6 +175,13 @@ namespace.** A catalogue may carry declarations annotated in other
 vocabularies — an agent runner's, for instance — and the daemon ignores them
 entirely. Widening the check would refuse such a catalogue at boot, which is
 knowledge of agents acquired through an error message.
+
+`garm.agent.v1` is the namespace that paragraph anticipated. A service carrying
+`(garm.agent.v1.agent)` declares an agent: the model, the bounds, the prompts
+and the tools it may call. A daemon serving the catalogue sees only the two
+governed tools that service declares — `Invoke` and `GetRun` — and never reads
+the annotation. The runner reads it. Lint rules A1–A5 check it at build time,
+so neither side discovers a bad manifest at load time.
 
 ## Who builds one
 

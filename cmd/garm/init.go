@@ -110,6 +110,7 @@ func runInit(cmd *cobra.Command, dir string, force bool) error {
 		body []byte
 	}{
 		{garm.VendoredAnnotationsPath, garm.AnnotationsProto},
+		{garm.VendoredAgentAnnotationsPath, garm.AgentAnnotationsProto},
 		{"buf.yaml", []byte(bufYAML)},
 		{"buf.gen.yaml", []byte(bufGenYAML)},
 	}

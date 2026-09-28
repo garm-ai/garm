@@ -12,7 +12,8 @@ It is not the server. That is [`garmd`](../garmd).
 
 | | |
 |---|---|
-| `proto/garm/v1/` | The annotations — verb, clearance, compartments, tool sets, effects, guidance, approval, audit |
+| `proto/garm/tool/v1/` | The tool annotations — verb, clearance, compartments, tool sets, effects, guidance, approval, audit |
+| `proto/garm/agent/v1/` | The agent manifest — mode, principal, model, bounds, prompts, the tool allowlist and its guards |
 | `cmd/garm/` | The CLI |
 | `internal/toolgen/` | The reader, the emitter, and the lint rules |
 | `conformance/` | Golden proto sets and the errors they must produce |

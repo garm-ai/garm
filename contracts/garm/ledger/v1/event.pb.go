@@ -115,9 +115,17 @@ type Event struct {
 	// It therefore inherits the retention and access controls of the most
 	// sensitive field of the tool that produced it. A lake that treats this
 	// column like the others has undone the redaction.
-	ErrorDetail   string `protobuf:"bytes,70,opt,name=error_detail,json=errorDetail,proto3" json:"error_detail,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ErrorDetail string `protobuf:"bytes,70,opt,name=error_detail,json=errorDetail,proto3" json:"error_detail,omitempty"`
+	// execution_subject is the `exec.sub` of the caller's token: the runner that
+	// executed this call for someone else, empty when there was none.
+	//
+	// 71 rather than the 70 the program plan named: 70 is error_detail, which
+	// has been on the wire since the first release and is the one field here
+	// that may carry unsanitized text. Reusing it would make an old reader
+	// decode a subject as an error detail. See the program plan §7, D1.
+	ExecutionSubject string `protobuf:"bytes,71,opt,name=execution_subject,json=executionSubject,proto3" json:"execution_subject,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Event) Reset() {
@@ -402,6 +410,13 @@ func (x *Event) GetErrorDetail() string {
 	return ""
 }
 
+func (x *Event) GetExecutionSubject() string {
+	if x != nil {
+		return x.ExecutionSubject
+	}
+	return ""
+}
+
 type Usage struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	InputTokens     int64                  `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
@@ -529,7 +544,7 @@ var File_garm_ledger_v1_event_proto protoreflect.FileDescriptor
 
 const file_garm_ledger_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"\x1agarm/ledger/v1/event.proto\x12\x0egarm.ledger.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\n" +
+	"\x1agarm/ledger/v1/event.proto\x12\x0egarm.ledger.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf3\n" +
 	"\n" +
 	"\x05Event\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12.\n" +
@@ -575,7 +590,8 @@ const file_garm_ledger_v1_event_proto_rawDesc = "" +
 	"\x0eredaction_plan\x18C \x01(\tR\rredactionPlan\x12'\n" +
 	"\x0fredaction_count\x18D \x01(\x05R\x0eredactionCount\x12'\n" +
 	"\x0fdisclosed_count\x18E \x01(\x05R\x0edisclosedCount\x12!\n" +
-	"\ferror_detail\x18F \x01(\tR\verrorDetail\x1a7\n" +
+	"\ferror_detail\x18F \x01(\tR\verrorDetail\x12+\n" +
+	"\x11execution_subject\x18G \x01(\tR\x10executionSubject\x1a7\n" +
 	"\tTagsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9f\x01\n" +

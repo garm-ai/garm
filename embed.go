@@ -31,6 +31,22 @@ var AnnotationsProto []byte
 // "garm/tool/v1/tool.proto" has to resolve, so only the root is a choice.
 const VendoredAnnotationsPath = "third_party/proto/garm/tool/v1/tool.proto"
 
+// AgentAnnotationsProto is proto/garm/agent/v1/agent.proto, exactly as
+// published.
+//
+//go:embed proto/garm/agent/v1/agent.proto
+var AgentAnnotationsProto []byte
+
+// VendoredAgentAnnotationsPath is where AgentAnnotationsProto belongs in a
+// consumer's tree.
+//
+// The same third_party module as the tool annotations, for the same reason:
+// every module in a buf v2 workspace is an input, so annotations under proto/
+// would have Go generated for them, and two packages registering one proto
+// file panic at init. The tail of the path is part of the contract — an import
+// of "garm/agent/v1/agent.proto" has to resolve.
+const VendoredAgentAnnotationsPath = "third_party/proto/garm/agent/v1/agent.proto"
+
 // AnnotationSchemaVersion is the version of the garm.tool.v1 vocabulary this
 // build speaks, stamped into every catalogue it produces.
 //

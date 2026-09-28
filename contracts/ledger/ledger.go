@@ -141,6 +141,16 @@ type Event struct {
 	// Recorders and lake consumers must hold this at the retention and
 	// access grade of the most sensitive field in the registry.
 	ErrorDetail string
+
+	// ExecutionSubject is the `exec.sub` of the caller's token: the runner
+	// that executed this call on someone else's behalf, empty when there was
+	// none (program plan §3.8).
+	//
+	// It is attribution and nothing else. Nothing in the governance chain
+	// reads it — the question it answers is "which of these rows did an agent
+	// runner produce", asked of the ledger, after the fact. A field that could
+	// deny a call would be a fifth vocabulary to check when one is refused.
+	ExecutionSubject string
 }
 
 type Recorder interface {

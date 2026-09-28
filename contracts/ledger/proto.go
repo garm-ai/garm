@@ -60,6 +60,8 @@ func ToProto(ev Event) *ledgerv1.Event {
 		DisclosedCount:        int32(ev.DisclosedCount),
 
 		ErrorDetail: ev.ErrorDetail,
+
+		ExecutionSubject: ev.ExecutionSubject,
 	}
 	if !ev.Time.IsZero() {
 		out.Time = timestamppb.New(ev.Time)
@@ -120,6 +122,8 @@ func FromProto(p *ledgerv1.Event) Event {
 		DisclosedCount:        int(p.GetDisclosedCount()),
 
 		ErrorDetail: p.GetErrorDetail(),
+
+		ExecutionSubject: p.GetExecutionSubject(),
 	}
 	if t := p.GetTime(); t != nil {
 		ev.Time = t.AsTime()
