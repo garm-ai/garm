@@ -43,6 +43,7 @@ func newRoot() *cobra.Command {
 		newGenCmd(),
 		newLintCmd(),
 		newCatalogueCmd(),
+		newClaimsCmd(),
 		newPluginCmd(),
 	)
 	return root

@@ -120,6 +120,18 @@ func readCatalogue(path string) ([]protoreflect.FileDescriptor, string, error) {
 	if err := proto.Unmarshal(raw, &msg); err != nil {
 		return nil, "", fmt.Errorf("parsing %s: %w", path, err)
 	}
+	// An empty file, and anything else whose bytes happen to be a valid
+	// encoding of an empty Catalogue, parses without error and carries no
+	// FileDescriptorSet at all. protodesc.NewFiles dereferences that nil,
+	// so the symptom is a panic rather than a message. Truncated and junk
+	// artifacts already fail above with something legible; this is the one
+	// remaining shape that did not.
+	if len(msg.GetFiles().GetFile()) == 0 {
+		return nil, "", fmt.Errorf(
+			"%s is not a catalogue artifact: it contains no proto files "+
+				"(an empty or zero-byte file parses as an empty catalogue). "+
+				"Build one with `garm catalogue build`", path)
+	}
 	files, err := protodesc.NewFiles(msg.GetFiles())
 	if err != nil {
 		return nil, "", fmt.Errorf("rebuilding the registry from %s: %w", path, err)

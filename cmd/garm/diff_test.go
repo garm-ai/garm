@@ -114,3 +114,24 @@ func TestDiffRejectsSomethingThatIsNotACatalogue(t *testing.T) {
 		t.Error("garbage was accepted as a catalogue")
 	}
 }
+
+// An empty file parses cleanly as an empty Catalogue — the FileDescriptorSet
+// is simply absent — and rebuilding a registry from that nil used to panic.
+// It has to be a legible error, on this path and therefore on every command
+// that reads an artifact.
+func TestDiffRejectsAnArtifactThatParsesToNothing(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.binpb")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good := buildInto(t, filepath.Join(dir, "a.binpb"), "CLEARANCE_INTERNAL")
+
+	err := runDiff(&bytes.Buffer{}, empty, good, false)
+	if err == nil {
+		t.Fatal("a zero-byte artifact was accepted as a catalogue")
+	}
+	if !strings.Contains(err.Error(), empty) {
+		t.Errorf("err = %q, want it to name the offending artifact %q", err.Error(), empty)
+	}
+}
