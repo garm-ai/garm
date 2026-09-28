@@ -441,20 +441,31 @@ func lintAgentDoorParity(a Agent) []Diag {
 	var out []Diag
 	path := string(a.Service.FullName())
 
-	inv, get := methodPolicy(a.Invoke), methodPolicy(a.GetRun)
-	for name, p := range map[string]*toolv1.ToolPolicy{"Invoke": inv, "GetRun": get} {
-		if p == nil || p.GetExclude() {
-			out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
+	// A fixed-order slice, not a map: the order Invoke-then-GetRun is
+	// deterministic by construction, and each door's diagnostic is reported
+	// against ITS OWN method FQN, the way A1 does — a catalogue built from
+	// many trees needs "which method" answerable from the diagnostic alone.
+	doors := [2]struct {
+		name string
+		md   protoreflect.MethodDescriptor
+		pol  *toolv1.ToolPolicy
+	}{
+		{"Invoke", a.Invoke, methodPolicy(a.Invoke)},
+		{"GetRun", a.GetRun, methodPolicy(a.GetRun)},
+	}
+	for _, d := range doors {
+		if d.pol == nil || d.pol.GetExclude() {
+			out = append(out, Diag{Rule: "A5", Path: string(d.md.FullName()), Msg: fmt.Sprintf(
 				"%s carries no (garm.tool.v1.tool), or excludes itself; both doors of "+
 					"an agent are governed tools and an unmounted one cannot be called "+
-					"at all", name)})
+					"at all", d.name)})
 		}
 	}
 	if len(out) > 0 {
-		sort.Slice(out, func(i, j int) bool { return out[i].Msg < out[j].Msg })
 		return out
 	}
 
+	inv, get := doors[0].pol, doors[1].pol
 	if inv.GetMinClearance() != get.GetMinClearance() {
 		out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
 			"Invoke declares min_clearance %v and GetRun declares %v; a caller who "+

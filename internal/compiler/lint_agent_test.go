@@ -625,17 +625,24 @@ func TestA5RefusesDifferentCompartmentsOnGetRun(t *testing.T) {
 // Order is not meaning. Two declarations listing the same names differently
 // describe the same policy, and a diagnostic about the order would be noise
 // an author learns to ignore — which is how they come to ignore the one that
-// matters.
+// matters. Both compartments and sets are exercised: each door lists both
+// labels the taxonomy declares, in a different order per door, and the
+// principal is granted both compartments so A3 has nothing to say about it.
 func TestA5IgnoresTheOrderOfSetsAndCompartments(t *testing.T) {
 	files := agentSrc(fullPolicy)
 	files["bank/v1/taxonomy.proto"] = strings.Replace(files["bank/v1/taxonomy.proto"],
 		`{ name: "support" description: "Support desk." }`,
 		`{ name: "support" description: "Support desk." }, { name: "ops" description: "Operations." }`, 1)
+	files["bank/v1/taxonomy.proto"] = strings.Replace(files["bank/v1/taxonomy.proto"],
+		`{ name: "financial" description: "Money." }`,
+		`{ name: "financial" description: "Money." }, { name: "legal" description: "Legal." }`, 1)
 	src := files["bank/v1/agent.proto"]
+	src = strings.Replace(src, `principal: { clearance: CLEARANCE_CONFIDENTIAL compartments: ["financial"] }`,
+		`principal: { clearance: CLEARANCE_CONFIDENTIAL compartments: ["financial", "legal"] }`, 1)
 	src = strings.Replace(src, `verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
-		`verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support", "ops"]`, 1)
+		`verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support", "ops"] compartments: ["financial", "legal"]`, 1)
 	src = strings.Replace(src, `verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
-		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ops", "support"]`, 1)
+		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ops", "support"] compartments: ["legal", "financial"]`, 1)
 	files["bank/v1/agent.proto"] = src
 	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
 		if d.Rule == "A5" {
@@ -645,7 +652,7 @@ func TestA5IgnoresTheOrderOfSetsAndCompartments(t *testing.T) {
 }
 
 // Both doors are governed tools. A method with no (garm.tool.v1.tool) is not
-// mounted at all, so an agent whose Invoke is unannotated has no governed
+// mounted at all, so an agent whose GetRun is unannotated has no governed
 // door and A5 has nothing to compare — say so, rather than passing.
 func TestA5RefusesADoorThatIsNotAGovernedTool(t *testing.T) {
 	files := agentSrc(fullPolicy)
@@ -658,6 +665,24 @@ func TestA5RefusesADoorThatIsNotAGovernedTool(t *testing.T) {
 	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
 	if !hasError(diags, "A5", "carries no (garm.tool.v1.tool)") {
 		t.Errorf("an unannotated door was accepted:\n%s", render(diags))
+	}
+}
+
+// A door can carry (garm.tool.v1.tool) and still not be governed: `exclude:
+// true` unmounts it exactly the way no annotation at all does (Tools, in
+// loader.go, skips excluded methods the same as unannotated ones). The nil
+// case above is already caught, independently, by L27 (every method on a
+// service that declares tools must carry an annotation) — an
+// annotated-but-excluded door is the one case where A5 is the sole defence,
+// so it needs its own test rather than relying on the nil case to cover it.
+func TestA5RefusesADoorThatExcludesItself(t *testing.T) {
+	files := agentSrc(fullPolicy)
+	files["bank/v1/agent.proto"] = strings.Replace(files["bank/v1/agent.proto"],
+		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
+		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"] exclude: true`, 1)
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A5", "bank.v1.SupportAssistant.GetRun", "carries no (garm.tool.v1.tool)") {
+		t.Errorf("a door that excludes itself was accepted:\n%s", render(diags))
 	}
 }
 
