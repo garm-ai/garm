@@ -1,0 +1,1 @@
+error: A3: conformance.a3.Assistant: tools[0].fqn "conformance.a3.read_ledger" requires CLEARANCE_RESTRICTED and the agent's principal has CLEARANCE_INTERNAL, so the agent could never call it

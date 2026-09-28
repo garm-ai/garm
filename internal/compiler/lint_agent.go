@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"github.com/garm-ai/garm/policy"
 )
 
 // Rules A1-A5 — the agent manifest (design §2.2, program plan §3.2).
@@ -28,10 +30,28 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	if len(agents) == 0 {
 		return nil
 	}
+	tools := toolIndex(fds)
 	var out []Diag
 	for _, a := range agents {
 		out = append(out, lintAgentShape(a)...)
 		out = append(out, lintAgentPrompts(a, opts)...)
+		out = append(out, lintAgentTools(a, tools)...)
+	}
+	return out
+}
+
+// toolIndex keys every tool in the linted set by the FQN an agent's allowlist
+// names it with.
+//
+// Built the same way `catalogue build` builds it — proto package, a dot, the
+// RESOLVED tool name (the explicit ToolPolicy.Name or the SnakeCase default) —
+// because the two have to agree exactly or a manifest that lints will name a
+// tool the catalogue does not have.
+func toolIndex(fds []protoreflect.FileDescriptor) map[string]Tool {
+	tools, _ := Tools(fds)
+	out := make(map[string]Tool, len(tools))
+	for _, t := range tools {
+		out[string(t.Method.ParentFile().Package())+"."+t.Name] = t
 	}
 	return out
 }
@@ -206,6 +226,62 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 					"The hash is what the runner fetches by and verifies against; "+
 					"update it in the same commit as the prompt",
 				k, p.GetPath(), got, p.GetSha256())})
+		}
+	}
+	return out
+}
+
+// lintAgentTools covers A3.
+//
+// An allowlist entry naming a tool the agent could never call is not a
+// harmless extra: the runner projects the model's tool list from the
+// catalogue and filters it by this list, so the entry either disappears
+// silently (and the manifest lies about what the agent can do) or the model
+// is offered a call that is refused at step 2 every time, burning a step of
+// the bounds on each attempt.
+//
+// The verb is deliberately NOT checked. The manifest carries no verbs — a
+// principal is a clearance and a set of compartments — and inventing one here
+// would be a fourth vocabulary that can refuse a build.
+func lintAgentTools(a Agent, tools map[string]Tool) []Diag {
+	var out []Diag
+	svc := string(a.Service.FullName())
+	have := a.Policy.GetPrincipal().GetClearance()
+
+	held := map[string]bool{}
+	for _, c := range a.Policy.GetPrincipal().GetCompartments() {
+		held[c] = true
+	}
+
+	for i, ref := range a.Policy.GetTools() {
+		fqn := ref.GetFqn()
+		if strings.Contains(fqn, "/") {
+			out = append(out, Diag{Rule: "A3", Path: svc, Msg: fmt.Sprintf(
+				"tools[%d].fqn %q looks like a method path; a tool key is "+
+					`"<proto package>.<tool name>", which is what the catalogue `+
+					"and the ledger both use", i, fqn)})
+			continue
+		}
+		t, ok := tools[fqn]
+		if !ok {
+			out = append(out, Diag{Rule: "A3", Path: svc, Msg: fmt.Sprintf(
+				"tools[%d].fqn %q names no tool in this catalogue; the allowlist is "+
+					"resolved against the catalogue the agent is published in",
+				i, fqn)})
+			continue
+		}
+		if need := t.Policy.GetMinClearance(); !policy.Allows(have, need) {
+			out = append(out, Diag{Rule: "A3", Path: svc, Msg: fmt.Sprintf(
+				"tools[%d].fqn %q requires %v and the agent's principal has %v, so "+
+					"the agent could never call it", i, fqn, need, have)})
+		}
+		for _, c := range t.Policy.GetCompartments() {
+			if !held[c] {
+				out = append(out, Diag{Rule: "A3", Path: svc, Msg: fmt.Sprintf(
+					"tools[%d].fqn %q requires compartment %q, which the agent's "+
+						"principal does not hold; compartments are a set and holding "+
+						"one does not admit you to another", i, fqn, c)})
+			}
 		}
 	}
 	return out

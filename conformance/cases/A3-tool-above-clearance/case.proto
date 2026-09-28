@@ -1,0 +1,51 @@
+syntax = "proto3";
+package conformance.a3;
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/a3;c";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
+
+message Ask {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string question = 1;
+}
+message Ledger {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string account = 1;
+}
+
+service Books {
+  rpc ReadLedger(Ledger) returns (Ledger) {
+    option (garm.tool.v1.tool) = {
+      name: "read_ledger" title: "Read the ledger" description: "The whole ledger."
+      verb: VERB_READ min_clearance: CLEARANCE_RESTRICTED
+    };
+  }
+}
+
+// The agent runs as INTERNAL and lists a RESTRICTED tool. Nothing refuses this
+// at run time in a way anyone would see: the runner filters the model's tool
+// list by this allowlist, so the tool simply never appears and the manifest
+// describes an agent nobody built.
+service Assistant {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+    principal: { clearance: CLEARANCE_INTERNAL }
+    model: { alias: "fast" }
+    bounds: { max_steps: 8 max_tokens: 100000 max_tool_calls: 20 timeout: { seconds: 600 } }
+    prompts: { key: "system" value: { path: "prompts/system.md" sha256: "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a" } }
+    tools: [{ fqn: "conformance.a3.read_ledger" }]
+  };
+  rpc Invoke(Ask) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant" title: "Assistant" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant_run" title: "Assistant run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+}

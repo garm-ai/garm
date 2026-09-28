@@ -302,3 +302,106 @@ func TestA2WarnsWhenThereIsNoPromptsRoot(t *testing.T) {
 		t.Error("A2 said nothing at all with no prompts root")
 	}
 }
+
+// a3Src is the agent fixture plus a real tool in a second package, so the
+// allowlist points at something that exists. minClearance and compartments
+// are what the tests vary.
+func a3Src(agentPolicy, toolMinClearance, toolCompartments string) map[string]string {
+	files := agentSrc(agentPolicy)
+	files["payments/v1/payments.proto"] = `syntax = "proto3";
+package payments.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/payments/v1;paymentsv1";
+message Pay {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional int64 amount_minor_units = 1;
+  optional string beneficiary_iban = 2;
+}
+message Paid {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+service Payments {
+  rpc InitiatePayment(Pay) returns (Paid) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Pay" description: "Move money."
+      verb: VERB_WRITE min_clearance: ` + toolMinClearance + `
+      compartments: [` + toolCompartments + `]
+    };
+  }
+}
+`
+	return files
+}
+
+func a3Policy(tools string) string {
+	return strings.Replace(fullPolicy, `tools: [{ fqn: "bank.v1.support_assistant" }]`, tools, 1)
+}
+
+// Review Focus 1 (program plan §4 line 1) — the tool exists and sits above the
+// agent's requested clearance. The agent could never call it, so listing it is
+// a manifest that describes an agent nobody built.
+func TestA3RefusesAToolAboveTheAgentsClearance(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.initiate_payment" }]`),
+		"CLEARANCE_RESTRICTED", "")
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A3", "bank.v1.SupportAssistant", "the agent could never call it") {
+		t.Errorf("a tool above the agent's clearance was accepted:\n%s", render(diags))
+	}
+}
+
+// Same shape, one level down: CONFIDENTIAL principal, CONFIDENTIAL tool — the
+// boundary, so a rule written with `>` rather than `>=` fails here rather than
+// passing on a strictly-lower fixture.
+//
+// The tool also sits in `financial`, which the principal holds: without that,
+// the loop over the tool's compartments never runs in any passing case and a
+// rule that reported EVERY compartment as unheld would go unnoticed.
+func TestA3AcceptsAToolAtOrBelowTheAgentsClearance(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.initiate_payment" }]`),
+		"CLEARANCE_CONFIDENTIAL", `"financial"`)
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A3" {
+			t.Errorf("a reachable tool produced an A3: %s", d.String())
+		}
+	}
+}
+
+// Compartments are a set, not a level: holding `financial` does not get you
+// into `pii-contact`.
+func TestA3RefusesAToolInACompartmentTheAgentDoesNotHold(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.initiate_payment" }]`),
+		"CLEARANCE_INTERNAL", `"pii-contact"`)
+	files["bank/v1/taxonomy.proto"] = strings.Replace(files["bank/v1/taxonomy.proto"],
+		`{ name: "financial" description: "Money." }`,
+		`{ name: "financial" description: "Money." }, { name: "pii-contact" description: "Contact details." }`, 1)
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A3", "bank.v1.SupportAssistant", `compartment "pii-contact"`) {
+		t.Errorf("a tool in an unheld compartment was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA3RefusesAToolThatIsNotInTheCatalogue(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.refund_payment" }]`),
+		"CLEARANCE_INTERNAL", "")
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A3", "bank.v1.SupportAssistant", "names no tool in this catalogue") {
+		t.Errorf("an unknown tool was accepted:\n%s", render(diags))
+	}
+}
+
+// Design §2.1: the key is the FQN `pkg.name`, and a method path is a lint
+// error. The two look similar enough that an author reaching for the thing
+// they see in a URL will write the wrong one.
+func TestA3RefusesAMethodPathAsAToolKey(t *testing.T) {
+	for _, fqn := range []string{
+		"/payments.v1.Payments/InitiatePayment",
+		"payments.v1.Payments/InitiatePayment",
+	} {
+		files := a3Src(a3Policy(`tools: [{ fqn: "`+fqn+`" }]`), "CLEARANCE_INTERNAL", "")
+		diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+		if !hasDiag(diags, "A3", "bank.v1.SupportAssistant", "looks like a method path") {
+			t.Errorf("the method path %q was accepted:\n%s", fqn, render(diags))
+		}
+	}
+}
