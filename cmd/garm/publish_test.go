@@ -31,7 +31,7 @@ type fakeS3 struct {
 	ops      []string          // "HEAD <bucket>/<key>" and "PUT <bucket>/<key>", in order
 	objects  map[string][]byte // "<bucket>/<key>" -> body
 	failPut  string            // a key whose PUT is refused with 403
-	failHead string            // a key whose HEAD is refused with 500 (not 404)
+	failHead string            // a key whose HEAD is refused with 403 (not 404)
 }
 
 func newFakeS3(t *testing.T, existing ...string) (*fakeS3, string) {
