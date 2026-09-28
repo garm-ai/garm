@@ -28,6 +28,12 @@ services, so only the fixture's `TestService` case survives here. The
   first cut and are unwritten.
 - `protoc-gen-garm-python` does not exist. Go only.
 - The annotations are not published as a buf module.
+- **`output_rules` are parsed, not evaluated.** A4 checks that each
+  `output_rules[].expr` parses as CEL and nothing more. What variables an
+  output rule sees is not fixed by any design document yet, so type-checking
+  one here would invent that contract in a lint rule. The repair loop that
+  would evaluate them is out of scope for the agent MVP
+  (`spec/…/2026-09-28-agent-mvp-design.md`, Scope: Out).
 
 ## Deferred with their dependencies
 

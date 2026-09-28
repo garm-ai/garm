@@ -19,6 +19,7 @@ cases/
   A1-third-method/                  an agent service is Invoke and GetRun and nothing else
   A2-prompt-hash-mismatch/          a prompt is pinned by hash; the file must match
   A3-tool-above-clearance/          an agent may not list a tool it could never call
+  A4-guard-on-unknown-field/        a guard is CEL over the tool's own request message
 ```
 
 ## Running
@@ -54,7 +55,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Ten cases against 34 rules. The rule count is the number of distinct rule
+Eleven cases against 35 rules. The rule count is the number of distinct rule
 IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
 incremented tally — recount it after adding a rule with:
 

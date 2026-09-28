@@ -29,6 +29,12 @@ func TestContractsDependencyGraphStaysThin(t *testing.T) {
 		"github.com/garm-ai/garm/policy",
 		"github.com/garm-ai/garm/internal",
 		"github.com/spf13/cobra",
+		// A4 compiles guards as CEL, which pulls in an ANTLR runtime. That
+		// belongs to the linter, in internal/compiler. Named here as well as
+		// covered by the internal/ ban above, because the ban would not catch
+		// cel-go imported straight into a contracts package.
+		"cel.dev/cel-go",
+		"github.com/antlr4-go/antlr",
 	}
 	// GOWORK=off: this test exists to guarantee what a CONSUMER of the
 	// published contracts module sees, not what a developer working

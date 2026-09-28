@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/garm-ai/garm/policy"
@@ -32,10 +34,15 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	}
 	tools := toolIndex(fds)
 	var out []Diag
+	// One CEL environment cache per lint run: several agents may guard the
+	// same tool, and building an environment means walking a file's whole
+	// type graph.
+	envs := map[protoreflect.FullName]*cel.Env{}
 	for _, a := range agents {
 		out = append(out, lintAgentShape(a)...)
 		out = append(out, lintAgentPrompts(a, opts)...)
 		out = append(out, lintAgentTools(a, tools)...)
+		out = append(out, lintAgentGuards(a, tools, envs)...)
 	}
 	return out
 }
@@ -48,6 +55,8 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 // because the two have to agree exactly or a manifest that lints will name a
 // tool the catalogue does not have.
 func toolIndex(fds []protoreflect.FileDescriptor) map[string]Tool {
+	// Tools cannot fail over an already-compiled descriptor set today; if it
+	// ever can, the index is empty and every allowlist entry looks unknown.
 	tools, _ := Tools(fds)
 	out := make(map[string]Tool, len(tools))
 	for _, t := range tools {
@@ -285,4 +294,129 @@ func lintAgentTools(a Agent, tools map[string]Tool) []Diag {
 		}
 	}
 	return out
+}
+
+// lintAgentGuards covers A4.
+//
+// A guard is the last thing between a model's chosen arguments and a governed
+// call, and it runs in the runner's process rather than in the chain — so a
+// guard that errors is a refusal and a guard that is not a predicate is
+// whatever the coercion happens to do. Both look like a working agent right up
+// until the call that mattered.
+//
+// CEL is checked, not merely parsed: `args` is declared with the tool's actual
+// request message type, so `args.amount` against a field named
+// `amount_minor_units` fails here instead of failing every call.
+//
+// Errors are reported without their source locations. A guard is one short
+// expression on one line, the column CEL reports is of little use in a
+// diagnostic that does not print the source, and a location in the text would
+// make a conformance golden move on a cel-go upgrade for no gain.
+func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullName]*cel.Env) []Diag {
+	var out []Diag
+	svc := string(a.Service.FullName())
+
+	for i, ref := range a.Policy.GetTools() {
+		if ref.GetGuard() == "" {
+			continue
+		}
+		t, ok := tools[ref.GetFqn()]
+		if !ok {
+			continue // A3 already reported that the tool does not exist.
+		}
+		msg := t.Method.Input()
+		env, ok := envs[msg.FullName()]
+		if !ok {
+			var err error
+			env, err = guardEnv(msg)
+			if err != nil {
+				out = append(out, Diag{Rule: "A4", Path: svc, Msg: fmt.Sprintf(
+					"tools[%d].guard cannot be checked: building a CEL environment for "+
+						"%s failed: %v", i, msg.FullName(), err)})
+				continue
+			}
+			envs[msg.FullName()] = env
+		}
+		ast, iss := env.Compile(ref.GetGuard())
+		if iss.Err() != nil {
+			out = append(out, Diag{Rule: "A4", Path: svc, Msg: fmt.Sprintf(
+				"tools[%d].guard %q does not compile against %s: %s",
+				i, ref.GetGuard(), msg.FullName(), celMessages(iss))})
+			continue
+		}
+		if !ast.OutputType().IsExactType(cel.BoolType) {
+			out = append(out, Diag{Rule: "A4", Path: svc, Msg: fmt.Sprintf(
+				"tools[%d].guard %q has type %s; a guard must be a bool predicate, "+
+					"because the runner refuses the call when it is false and has "+
+					"nothing to compare when it is anything else",
+				i, ref.GetGuard(), ast.OutputType())})
+		}
+	}
+
+	// output_rules are parsed and otherwise ignored in this MVP (design §2.2).
+	// Syntax only: nothing yet fixes what variables an output rule is
+	// evaluated against, and type-checking one would invent that contract
+	// here rather than in the design.
+	if len(a.Policy.GetOutputRules()) == 0 {
+		return out
+	}
+	parseEnv, err := cel.NewEnv()
+	if err != nil {
+		return append(out, Diag{Rule: "A4", Path: svc,
+			Msg: "output_rules cannot be parsed: " + err.Error()})
+	}
+	for i, r := range a.Policy.GetOutputRules() {
+		if _, iss := parseEnv.Parse(r.GetExpr()); iss.Err() != nil {
+			out = append(out, Diag{Rule: "A4", Path: svc, Msg: fmt.Sprintf(
+				"output_rules[%d].expr %q does not parse as CEL: %s",
+				i, r.GetExpr(), celMessages(iss))})
+		}
+	}
+	return out
+}
+
+// guardEnv declares `args` as the tool's request message type.
+//
+// The descriptors come from the tree being linted, not from anything this
+// binary links, so the type provider is built from the file descriptor rather
+// than from a Go message. RegisterDescriptor registers one file, so imports
+// are walked too — a request message with a google.protobuf.Timestamp field is
+// otherwise an unknown type the moment a guard touches it.
+func guardEnv(md protoreflect.MessageDescriptor) (*cel.Env, error) {
+	reg, err := types.NewRegistry()
+	if err != nil {
+		return nil, err
+	}
+	if err := registerFileAndImports(reg, md.ParentFile(), map[string]bool{}); err != nil {
+		return nil, err
+	}
+	return cel.NewEnv(
+		cel.CustomTypeAdapter(reg),
+		cel.CustomTypeProvider(reg),
+		cel.Variable("args", cel.ObjectType(string(md.FullName()))),
+	)
+}
+
+func registerFileAndImports(reg *types.Registry, fd protoreflect.FileDescriptor, seen map[string]bool) error {
+	if seen[fd.Path()] {
+		return nil
+	}
+	seen[fd.Path()] = true
+	imports := fd.Imports()
+	for i := 0; i < imports.Len(); i++ {
+		if err := registerFileAndImports(reg, imports.Get(i).FileDescriptor, seen); err != nil {
+			return err
+		}
+	}
+	return reg.RegisterDescriptor(fd)
+}
+
+// celMessages flattens CEL's issues to one line, dropping the source
+// locations. See lintAgentGuards for why.
+func celMessages(iss *cel.Issues) string {
+	msgs := make([]string, 0, len(iss.Errors()))
+	for _, e := range iss.Errors() {
+		msgs = append(msgs, e.Message)
+	}
+	return strings.Join(msgs, "; ")
 }

@@ -405,3 +405,180 @@ func TestA3RefusesAMethodPathAsAToolKey(t *testing.T) {
 		}
 	}
 }
+
+// a4Files is the A3 fixture with one guarded tool: a real tool in a second
+// package, so the guard has an actual request message to type against.
+func a4Files(guard string) map[string]string {
+	return a3Src(a3Policy(`tools: [{ fqn: "payments.v1.initiate_payment" guard: "`+guard+`" }]`),
+		"CLEARANCE_INTERNAL", "")
+}
+
+// Review Focus 2 — a guard naming a field the request message does not have.
+// CEL resolves fields at check time, so this is catchable at build time; left
+// to run time it is a guard that errors on every call, which the runner treats
+// as a refusal, so the tool silently becomes uncallable.
+func TestA4RefusesAGuardOnAFieldThatDoesNotExist(t *testing.T) {
+	diags := compiler.LintWith(compileSource(t, a4Files("args.amount <= 500000")), compiler.Options{})
+	if !hasDiag(diags, "A4", "bank.v1.SupportAssistant", "undefined field 'amount'") {
+		t.Errorf("a guard on a field that does not exist was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA4AcceptsAGuardOnARealField(t *testing.T) {
+	files := a4Files("args.amount_minor_units <= 500000")
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A4" {
+			t.Errorf("a correct guard produced an A4: %s", d.String())
+		}
+	}
+}
+
+// A guard is a predicate. An expression that yields a string is not one, and
+// the runner would have nothing to compare against — so the tool call would
+// either always pass or always fail depending on how the coercion was
+// written, which is the worst kind of governance bug: it looks like it works.
+func TestA4RefusesAGuardThatIsNotBoolean(t *testing.T) {
+	diags := compiler.LintWith(compileSource(t, a4Files("args.beneficiary_iban")), compiler.Options{})
+	if !hasDiag(diags, "A4", "bank.v1.SupportAssistant", "must be a bool predicate") {
+		t.Errorf("a non-boolean guard was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA4RefusesAGuardThatIsNotCel(t *testing.T) {
+	diags := compiler.LintWith(compileSource(t, a4Files("args.amount_minor_units <=")), compiler.Options{})
+	if !hasDiag(diags, "A4", "bank.v1.SupportAssistant", "does not compile") {
+		t.Errorf("a syntactically broken guard was accepted:\n%s", render(diags))
+	}
+}
+
+// An empty guard is "no guard", not "a guard that is empty". Most tools have
+// none.
+func TestA4IgnoresAnAbsentGuard(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.initiate_payment" }]`),
+		"CLEARANCE_INTERNAL", "")
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A4" {
+			t.Errorf("an absent guard produced an A4: %s", d.String())
+		}
+	}
+}
+
+// A guard on a tool that is not in the catalogue has no request message to
+// type against. A3 has already said the tool does not exist, so A4 says
+// nothing — and must not reach through the zero Tool for a method descriptor
+// that is not there.
+func TestA4SaysNothingAboutAGuardOnAToolThatDoesNotExist(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [{ fqn: "payments.v1.refund_payment" guard: "args.amount <= 5" }]`),
+		"CLEARANCE_INTERNAL", "")
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A3", "bank.v1.SupportAssistant", "names no tool in this catalogue") {
+		t.Fatalf("the fixture no longer exercises an unknown tool:\n%s", render(diags))
+	}
+	for _, d := range diags {
+		if d.Rule == "A4" {
+			t.Errorf("A4 spoke about a tool A3 already refused: %s", d.String())
+		}
+	}
+}
+
+// Each guard is typed against ITS OWN tool's request message, not against
+// whichever tool happened to be looked up first. Both entries carry the same
+// guard text here: it names a field of payments.v1.Pay, which bank.v1.Ask
+// does not have. So entry 0 must fail and entry 1 must pass — an
+// implementation that built one environment for the whole allowlist, or that
+// indexed the tools off by one, would report both or neither.
+func TestA4ChecksEachGuardAgainstItsOwnToolsRequestMessage(t *testing.T) {
+	files := a3Src(a3Policy(`tools: [
+      { fqn: "bank.v1.support_assistant" guard: "args.amount_minor_units <= 500000" },
+      { fqn: "payments.v1.initiate_payment" guard: "args.amount_minor_units <= 500000" }
+    ]`), "CLEARANCE_INTERNAL", "")
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasDiag(diags, "A4", "bank.v1.SupportAssistant",
+		`tools[0].guard "args.amount_minor_units <= 500000" does not compile against bank.v1.Ask`) {
+		t.Errorf("the guard on tools[0] was not checked against bank.v1.Ask:\n%s", render(diags))
+	}
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A4" && strings.Contains(d.Msg, "tools[1]") {
+			t.Errorf("the guard on tools[1] is correct for payments.v1.Pay but was "+
+				"reported: %s", d.String())
+		}
+	}
+}
+
+// The descriptors come from the tree being linted, so the type provider has to
+// be built from them — and from their imports too. The request message's
+// `amount` field is a message declared in ANOTHER file in another package, so
+// registering only the request message's own file leaves that field an unknown
+// type the moment the guard selects through it. google.protobuf.Timestamp is
+// in the same expression because CEL maps it to its own `timestamp` type
+// rather than to the message, and a guard author will reach for it.
+func TestA4ResolvesNestedAndImportedMessageFields(t *testing.T) {
+	files := a3Src(a3Policy(
+		`tools: [{ fqn: "payments.v1.initiate_payment" `+
+			`guard: "args.amount.minor_units <= 500000 && `+
+			`args.requested_at > timestamp(\'2020-01-01T00:00:00Z\')" }]`),
+		"CLEARANCE_INTERNAL", "")
+	files["money/v1/money.proto"] = `syntax = "proto3";
+package money.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/money/v1;moneyv1";
+message Money {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional int64 minor_units = 1;
+}
+`
+	files["payments/v1/payments.proto"] = `syntax = "proto3";
+package payments.v1;
+import "garm/tool/v1/tool.proto";
+import "google/protobuf/timestamp.proto";
+import "money/v1/money.proto";
+option go_package = "example.com/payments/v1;paymentsv1";
+message Pay {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional money.v1.Money amount = 1;
+  optional google.protobuf.Timestamp requested_at = 2;
+}
+message Paid {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+service Payments {
+  rpc InitiatePayment(Pay) returns (Paid) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Pay" description: "Move money."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+    };
+  }
+}
+`
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A4" {
+			t.Errorf("a guard on an imported message type produced an A4: %s", d.String())
+		}
+	}
+}
+
+// output_rules are parsed for CEL validity and otherwise ignored in this MVP
+// (design §2.2). Only syntax: the variable environment an output rule is
+// evaluated in is not fixed anywhere yet, so type-checking one would be
+// inventing a contract.
+func TestA4ParsesOutputRulesForSyntaxOnly(t *testing.T) {
+	policy := strings.Replace(fullPolicy, `tools: [{ fqn: "bank.v1.support_assistant" }]`,
+		`tools: []
+    output_rules: [{ expr: "result.answer !=" message: "no answer" }]`, 1)
+	diags := compiler.LintWith(compileSource(t, agentSrc(policy)), compiler.Options{})
+	if !hasDiag(diags, "A4", "bank.v1.SupportAssistant",
+		`output_rules[0].expr "result.answer !=" does not parse as CEL`) {
+		t.Errorf("an unparseable output rule was accepted:\n%s", render(diags))
+	}
+	// And a rule naming something nothing declares is NOT an error: it is
+	// only parsed, because nothing fixes what an output rule sees.
+	ok := strings.Replace(fullPolicy, `tools: [{ fqn: "bank.v1.support_assistant" }]`,
+		`tools: []
+    output_rules: [{ expr: "result.answer != ''" message: "no answer" }]`, 1)
+	for _, d := range compiler.LintWith(compileSource(t, agentSrc(ok)), compiler.Options{}) {
+		if d.Rule == "A4" {
+			t.Errorf("a parseable output rule produced an A4: %s", d.String())
+		}
+	}
+}
