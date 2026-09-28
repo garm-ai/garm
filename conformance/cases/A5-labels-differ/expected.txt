@@ -1,0 +1,1 @@
+error: A5: conformance.a5.Assistant: Invoke declares min_clearance CLEARANCE_INTERNAL and GetRun declares CLEARANCE_PUBLIC; a caller who can start a run must be able to read it, and no one else

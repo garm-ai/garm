@@ -13,6 +13,7 @@ import (
 	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/policy"
 )
 
@@ -43,6 +44,7 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		out = append(out, lintAgentPrompts(a, opts)...)
 		out = append(out, lintAgentTools(a, tools)...)
 		out = append(out, lintAgentGuards(a, tools, envs)...)
+		out = append(out, lintAgentDoorParity(a)...)
 	}
 	return out
 }
@@ -419,4 +421,86 @@ func celMessages(iss *cel.Issues) string {
 		msgs = append(msgs, e.Message)
 	}
 	return strings.Join(msgs, "; ")
+}
+
+// lintAgentDoorParity covers A5.
+//
+// Design §5.2 frame 12: GetRun has no visibility rule of its own. garmd runs
+// step 2 against the labels on the method and nothing else, and agentd's only
+// additional check is that the caller started the run. So if GetRun is
+// labelled more loosely than Invoke, the set of people who can read a run's
+// result is larger than the set who could have started one — and the result is
+// the agent's output, derived from every tool the run touched.
+//
+// Compartments and sets are compared as SETS. Order is not meaning, and a
+// diagnostic about ordering is noise that teaches an author to skim past A5.
+func lintAgentDoorParity(a Agent) []Diag {
+	if a.Invoke == nil || a.GetRun == nil {
+		return nil // A1 reports a missing Invoke; a missing GetRun is legal.
+	}
+	var out []Diag
+	path := string(a.Service.FullName())
+
+	inv, get := methodPolicy(a.Invoke), methodPolicy(a.GetRun)
+	for name, p := range map[string]*toolv1.ToolPolicy{"Invoke": inv, "GetRun": get} {
+		if p == nil || p.GetExclude() {
+			out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
+				"%s carries no (garm.tool.v1.tool), or excludes itself; both doors of "+
+					"an agent are governed tools and an unmounted one cannot be called "+
+					"at all", name)})
+		}
+	}
+	if len(out) > 0 {
+		sort.Slice(out, func(i, j int) bool { return out[i].Msg < out[j].Msg })
+		return out
+	}
+
+	if inv.GetMinClearance() != get.GetMinClearance() {
+		out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
+			"Invoke declares min_clearance %v and GetRun declares %v; a caller who "+
+				"can start a run must be able to read it, and no one else",
+			inv.GetMinClearance(), get.GetMinClearance())})
+	}
+	if d := sameSet(inv.GetCompartments(), get.GetCompartments()); d != "" {
+		out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
+			"Invoke and GetRun declare different compartments: %s. A caller who can "+
+				"start a run must be able to read it, and no one else", d)})
+	}
+	if d := sameSet(inv.GetSets(), get.GetSets()); d != "" {
+		out = append(out, Diag{Rule: "A5", Path: path, Msg: fmt.Sprintf(
+			"Invoke and GetRun declare different sets: %s. A session scoped to one "+
+				"door and not the other can start runs it cannot read, or read runs it "+
+				"could not have started", d)})
+	}
+	return out
+}
+
+// sameSet returns "" when two label lists describe the same set, and a
+// rendered difference otherwise. Sorted so the message is stable.
+func sameSet(a, b []string) string {
+	in := func(xs []string) map[string]bool {
+		m := make(map[string]bool, len(xs))
+		for _, x := range xs {
+			m[x] = true
+		}
+		return m
+	}
+	am, bm := in(a), in(b)
+	var onlyA, onlyB []string
+	for x := range am {
+		if !bm[x] {
+			onlyA = append(onlyA, x)
+		}
+	}
+	for x := range bm {
+		if !am[x] {
+			onlyB = append(onlyB, x)
+		}
+	}
+	if len(onlyA) == 0 && len(onlyB) == 0 {
+		return ""
+	}
+	sort.Strings(onlyA)
+	sort.Strings(onlyB)
+	return fmt.Sprintf("only on Invoke %v, only on GetRun %v", onlyA, onlyB)
 }

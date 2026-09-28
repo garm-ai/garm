@@ -20,6 +20,7 @@ cases/
   A2-prompt-hash-mismatch/          a prompt is pinned by hash; the file must match
   A3-tool-above-clearance/          an agent may not list a tool it could never call
   A4-guard-on-unknown-field/        a guard is CEL over the tool's own request message
+  A5-labels-differ/                 whoever can start a run can read it, and nobody else
 ```
 
 ## Running
@@ -55,7 +56,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Eleven cases against 35 rules. The rule count is the number of distinct rule
+Twelve cases against 36 rules. The rule count is the number of distinct rule
 IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
 incremented tally — recount it after adding a rule with:
 
@@ -84,3 +85,10 @@ The caller cannot tell *you may not see this* from *it is 0*. That is a
 redaction which leaks by ambiguity, and it is exactly the kind of thing that
 looks fine in review and is wrong in production — which is why it is a build
 error rather than a warning.
+
+## Why the A cases are here at all
+
+A1–A5 govern the agent manifest, which is read by a runner in a different
+repository. Nothing in `garm` executes an agent, so these five rules are the
+only place a bad manifest is refused with its author present — everywhere else
+it is a named agent that stops loading, at 3am, in an error log.

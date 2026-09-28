@@ -582,3 +582,89 @@ func TestA4ParsesOutputRulesForSyntaxOnly(t *testing.T) {
 		}
 	}
 }
+
+// a5Files varies only GetRun's labels; Invoke keeps
+// `verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]`.
+func a5Files(getRunLabels string) map[string]string {
+	files := agentSrc(fullPolicy)
+	files["bank/v1/agent.proto"] = strings.Replace(files["bank/v1/agent.proto"],
+		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
+		getRunLabels, 1)
+	return files
+}
+
+func TestA5RefusesADifferentMinClearanceOnGetRun(t *testing.T) {
+	diags := compiler.LintWith(compileSource(t,
+		a5Files(`verb: VERB_READ min_clearance: CLEARANCE_PUBLIC sets: ["support"]`)),
+		compiler.Options{})
+	if !hasError(diags, "A5", "min_clearance") {
+		t.Errorf("GetRun at a different clearance was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA5RefusesDifferentSetsOnGetRun(t *testing.T) {
+	files := a5Files(`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ops"]`)
+	files["bank/v1/taxonomy.proto"] = strings.Replace(files["bank/v1/taxonomy.proto"],
+		`{ name: "support" description: "Support desk." }`,
+		`{ name: "support" description: "Support desk." }, { name: "ops" description: "Operations." }`, 1)
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasError(diags, "A5", "sets") {
+		t.Errorf("GetRun in a different tool set was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA5RefusesDifferentCompartmentsOnGetRun(t *testing.T) {
+	diags := compiler.LintWith(compileSource(t,
+		a5Files(`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"] compartments: ["financial"]`)),
+		compiler.Options{})
+	if !hasError(diags, "A5", "compartments") {
+		t.Errorf("GetRun in a different compartment was accepted:\n%s", render(diags))
+	}
+}
+
+// Order is not meaning. Two declarations listing the same names differently
+// describe the same policy, and a diagnostic about the order would be noise
+// an author learns to ignore — which is how they come to ignore the one that
+// matters.
+func TestA5IgnoresTheOrderOfSetsAndCompartments(t *testing.T) {
+	files := agentSrc(fullPolicy)
+	files["bank/v1/taxonomy.proto"] = strings.Replace(files["bank/v1/taxonomy.proto"],
+		`{ name: "support" description: "Support desk." }`,
+		`{ name: "support" description: "Support desk." }, { name: "ops" description: "Operations." }`, 1)
+	src := files["bank/v1/agent.proto"]
+	src = strings.Replace(src, `verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
+		`verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support", "ops"]`, 1)
+	src = strings.Replace(src, `verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]`,
+		`verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ops", "support"]`, 1)
+	files["bank/v1/agent.proto"] = src
+	for _, d := range compiler.LintWith(compileSource(t, files), compiler.Options{}) {
+		if d.Rule == "A5" {
+			t.Errorf("a reordered but identical label set produced an A5: %s", d.String())
+		}
+	}
+}
+
+// Both doors are governed tools. A method with no (garm.tool.v1.tool) is not
+// mounted at all, so an agent whose Invoke is unannotated has no governed
+// door and A5 has nothing to compare — say so, rather than passing.
+func TestA5RefusesADoorThatIsNotAGovernedTool(t *testing.T) {
+	files := agentSrc(fullPolicy)
+	files["bank/v1/agent.proto"] = strings.Replace(files["bank/v1/agent.proto"],
+		`    option (garm.tool.v1.tool) = {
+      name: "support_assistant_run" title: "Support run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+`, "", 1)
+	diags := compiler.LintWith(compileSource(t, files), compiler.Options{})
+	if !hasError(diags, "A5", "carries no (garm.tool.v1.tool)") {
+		t.Errorf("an unannotated door was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA5AcceptsIdenticalLabels(t *testing.T) {
+	for _, d := range compiler.LintWith(compileSource(t, agentSrc(fullPolicy)), compiler.Options{}) {
+		if d.Rule == "A5" {
+			t.Errorf("identical labels produced an A5: %s", d.String())
+		}
+	}
+}
