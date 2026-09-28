@@ -147,9 +147,8 @@ prompts/support-assistant.md
 ```
 
 declares `path: "prompts/support-assistant.md"` and needs no flag.
-`--prompts-root DIR` overrides it. `garm catalogue publish`, when it lands,
-will take the same flag, defaulting to the working directory — the same
-place.
+`--prompts-root DIR` overrides it. `garm catalogue publish` takes the same
+flag, defaulting to the working directory — the same place.
 
 The path may not leave that root: an absolute path, or one that climbs out with
 `..`, is a build error rather than a file that gets read and hashed. The
@@ -161,6 +160,32 @@ It also refuses to write a catalogue with no tools in it. A daemon started on
 an empty catalogue serves nothing, and that is never what anyone meant.
 
 No `buf` required. No plugins, no registry, no network.
+
+## Publishing one
+
+```console
+$ garm catalogue publish catalogue.binpb s3://garm/catalogue/
+wrote s3://garm/catalogue/prompts/d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a.md
+wrote s3://garm/catalogue/catalogue.binpb
+  sha256:65a16d19cec0fa3c…
+```
+
+**Prompts first, catalogue last.** A daemon and a runner poll the catalogue
+object and load whatever is there. A catalogue visible before the files it
+pins is a generation that cannot be loaded — and the reader cannot tell that
+from a prompt that was tampered with. The order is the command.
+
+Every prompt is read and hashed **before** the first byte is uploaded, so a
+missing or drifted prompt publishes nothing at all. An object that already
+exists under a prompt's key is left alone: a prompt is addressed by its own
+sha256, so one that is there is already the right bytes.
+
+The catalogue object is overwritten in place and the S3 ETag is the change
+signal. There is no separate notification.
+
+Credentials come from the AWS SDK's default chain. `AWS_ENDPOINT_URL` points
+it at something else — SeaweedFS locally, MinIO, anything speaking S3 — and
+switches it to path-style addressing, which is what those stores serve.
 
 ## Loading one
 

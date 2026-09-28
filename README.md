@@ -26,7 +26,8 @@ garm gen                 run the code generators
 garm lint                check your tool declarations
 garm new toolservice     scaffold a service
 garm catalogue build     build the artifact garmd loads
-garm catalogue check     will this load on garmd v2.1?
+garm catalogue publish   put it, and the prompts it pins, on an object store
+garm catalogue diff      what changed between two catalogues
 ```
 
 The binary also **contains** `protoc-gen-garm-go` and

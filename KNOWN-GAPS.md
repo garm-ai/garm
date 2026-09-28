@@ -23,9 +23,8 @@ services, so only the fixture's `TestService` case survives here. The
 
 ## Not built yet
 
-- `cmd/garm` is the protoc plugin's `main`, not a cobra CLI. `init`,
-  `gen`, `lint`, `new` and the `protoc-gen-garm-*` subcommands are the
-  first cut and are unwritten.
+- `garm new toolservice` is unwritten. `init`, `gen`, `lint`, `claims check`
+  and the `catalogue` subcommands exist.
 - `protoc-gen-garm-python` does not exist. Go only.
 - The annotations are not published as a buf module.
 - **`output_rules` are parsed, not evaluated.** A4 checks that each
@@ -34,6 +33,12 @@ services, so only the fixture's `TestService` case survives here. The
   one here would invent that contract in a lint rule. The repair loop that
   would evaluate them is out of scope for the agent MVP
   (`spec/…/2026-09-28-agent-mvp-design.md`, Scope: Out).
+- **`catalogue publish` does one PUT per object.** No multipart, no retry, no
+  concurrency. A prompt is a markdown file and a catalogue is single-digit
+  megabytes at a realistic size (see `docs/catalogue.md`), so none of the three
+  earns its complexity yet. The test double it is tested against covers HEAD
+  and PUT and nothing else, deliberately: what is worth asserting here is the
+  ORDER and the refusals, not an S3 implementation.
 
 ## Deferred with their dependencies
 
