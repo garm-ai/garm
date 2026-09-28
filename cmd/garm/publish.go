@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -91,11 +90,15 @@ func runCataloguePublish(cmd *cobra.Command, cataloguePath, dest, promptsRoot st
 	if err != nil {
 		return err
 	}
+	// Read once. The digest printed at the end describes exactly these
+	// bytes — the ones actually uploaded — rather than a second read of the
+	// same path, which could in principle see a different generation of the
+	// file than the one just sent.
 	body, err := os.ReadFile(cataloguePath)
 	if err != nil {
 		return fmt.Errorf("reading catalogue: %w", err)
 	}
-	fds, digest, err := readCatalogue(cataloguePath)
+	fds, digest, err := parseCatalogue(cataloguePath, body)
 	if err != nil {
 		return err
 	}
@@ -124,7 +127,10 @@ func runCataloguePublish(cmd *cobra.Command, cataloguePath, dest, promptsRoot st
 			continue
 		}
 		if err := putObject(ctx, client, d.Bucket, key, p.Body, "text/markdown"); err != nil {
-			return fmt.Errorf("uploading s3://%s/%s: %w", d.Bucket, key, err)
+			return fmt.Errorf("uploading s3://%s/%s: %w; the catalogue was not written. "+
+				"Any prompt this run already uploaded is harmless to leave in place — "+
+				"each is addressed by its own sha256, so re-running publish re-verifies "+
+				"the tree and only uploads what is still missing", d.Bucket, key, err)
 		}
 		fmt.Fprintf(out, "wrote s3://%s/%s\n", d.Bucket, key)
 	}
@@ -159,12 +165,23 @@ func verifyPrompts(fds []protoreflect.FileDescriptor, promptsRoot string) ([]pro
 		if seen[ref.SHA256] {
 			continue
 		}
-		full := filepath.Join(promptsRoot, filepath.FromSlash(ref.Path))
-		body, err := os.ReadFile(full)
+		// The same resolved-path containment the linter applies (A2), not
+		// just the lexical ValidatePromptPath above: a catalogue built
+		// elsewhere may carry any path at all, and a symlink one level below
+		// a clean-looking declared path can still lead outside the tree.
+		// ContainedPromptPath is the one implementation of that check,
+		// shared with internal/compiler's linter.
+		resolved, err := compiler.ContainedPromptPath(promptsRoot, ref.Path)
 		if err != nil {
-			return nil, fmt.Errorf("%s prompts[%q]: %s is not under the prompts root %s; "+
+			return nil, fmt.Errorf("%s prompts[%q]: %s is not under the prompts root %s: %v; "+
 				"publish from the directory you built the catalogue in, or pass "+
-				"--prompts-root", ref.Agent, ref.Key, ref.Path, promptsRoot)
+				"--prompts-root", ref.Agent, ref.Key, ref.Path, promptsRoot, err)
+		}
+		body, err := os.ReadFile(resolved)
+		if err != nil {
+			return nil, fmt.Errorf("%s prompts[%q]: %s is not under the prompts root %s: %v; "+
+				"publish from the directory you built the catalogue in, or pass "+
+				"--prompts-root", ref.Agent, ref.Key, ref.Path, promptsRoot, err)
 		}
 		sum := sha256.Sum256(body)
 		if got := hex.EncodeToString(sum[:]); got != ref.SHA256 {

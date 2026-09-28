@@ -187,6 +187,14 @@ Credentials come from the AWS SDK's default chain. `AWS_ENDPOINT_URL` points
 it at something else — SeaweedFS locally, MinIO, anything speaking S3 — and
 switches it to path-style addressing, which is what those stores serve.
 
+**Permissions.** The credential needs `s3:PutObject` and `s3:ListBucket` on
+the destination bucket. The second is easy to miss: AWS answers a `HEAD` on a
+key that is genuinely missing with 404 only when the caller can list the
+bucket; without `s3:ListBucket` it answers 403 instead, which looks nothing
+like "not there" and which `publish` — correctly — treats as a hard failure
+rather than a green light to upload. A credential with `PutObject` alone can
+build a catalogue that never publishes anything.
+
 ## Loading one
 
 A daemon fails closed, and in a specific way:

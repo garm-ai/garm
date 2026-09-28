@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -150,6 +151,56 @@ func ValidatePromptPath(p string) error {
 		return fmt.Errorf("the path escapes the prompts root (it resolves to %q)", clean)
 	}
 	return nil
+}
+
+// ErrPromptEscapesRoot marks a resolved prompt path — one that ValidatePromptPath
+// already accepted as lexically clean — that turns out, once symlinks are
+// followed, to sit outside the prompts root. Callers use errors.Is against
+// this to tell "the declaration is bad" apart from "the tree does not match
+// the declaration" (a plain missing-file error from ContainedPromptPath),
+// because the two get worded differently: this one is reported the same way
+// a lexical escape is, the other is not.
+var ErrPromptEscapesRoot = errors.New("the path escapes the prompts root")
+
+// ContainedPromptPath resolves rel under root, following every symlink on the
+// way to the target, and refuses if the resolved path escapes the resolved
+// root — returning the resolved, safe-to-read path otherwise.
+//
+// ValidatePromptPath alone is not enough. It is a LEXICAL check on the
+// declared string, and a path that stays inside root as text can still
+// resolve, one level further, to a target outside it if any component on the
+// way to it is a symlink — the linter (A2) and `catalogue publish` both read
+// whatever this resolves to, so both need the same re-resolved check before
+// they do, not just the string check. This is that one implementation,
+// shared so it exists in exactly one place.
+//
+// The root itself may sit behind a symlink too (a temp dir on macOS commonly
+// does), so it is resolved the same way before the containment check —
+// otherwise every prompt in that tree would look like it escapes.
+func ContainedPromptPath(root, rel string) (string, error) {
+	full := filepath.Join(root, filepath.FromSlash(rel))
+
+	// EvalSymlinks both requires the target to exist and resolves every
+	// symlink on the way to it, so a path that is missing and a path that is
+	// a dangling symlink are reported the same way here: not there. This
+	// error is deliberately NOT wrapped in ErrPromptEscapesRoot: "the file
+	// is not there" and "the declaration names something outside the tree"
+	// are different problems for a caller to report.
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		return "", fmt.Errorf("%s does not exist under the prompts root %s: %w", rel, root, err)
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		resolvedRoot = root
+	}
+	if r, err := filepath.Rel(resolvedRoot, resolved); err != nil ||
+		r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: it resolves (following symlinks) to %s, which is "+
+			"outside the prompts root %s", ErrPromptEscapesRoot, resolved, root)
+	}
+	return resolved, nil
 }
 
 // ValidatePromptSHA256 insists on exactly what the contract says: 64 lowercase

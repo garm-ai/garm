@@ -24,7 +24,6 @@ It is not the server. That is [`garmd`](../garmd).
 garm init                scaffold a proto tree, annotations vendored in
 garm gen                 run the code generators
 garm lint                check your tool declarations
-garm new toolservice     scaffold a service
 garm catalogue build     build the artifact garmd loads
 garm catalogue publish   put it, and the prompts it pins, on an object store
 garm catalogue diff      what changed between two catalogues

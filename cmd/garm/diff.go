@@ -116,6 +116,19 @@ func readCatalogue(path string) ([]protoreflect.FileDescriptor, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("reading catalogue: %w", err)
 	}
+	return parseCatalogue(path, raw)
+}
+
+// parseCatalogue is readCatalogue's parsing half, split out so a caller that
+// already holds the bytes it read from disk does not have to read the file a
+// second time just to get fds and a digest.
+//
+// `catalogue publish` is that caller: it uploads exactly the bytes it reads,
+// and a digest computed from a SECOND read could describe a different
+// generation of the file than the one actually sent — a TOCTOU gap between
+// "read the bytes we upload" and "read the bytes we hash", however narrow, is
+// the same category of bug this command exists to close for prompts.
+func parseCatalogue(path string, raw []byte) ([]protoreflect.FileDescriptor, string, error) {
 	var msg cataloguev1.Catalogue
 	if err := proto.Unmarshal(raw, &msg); err != nil {
 		return nil, "", fmt.Errorf("parsing %s: %w", path, err)

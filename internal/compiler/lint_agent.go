@@ -3,9 +3,9 @@ package compiler
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -150,10 +150,12 @@ func lintAgentShape(a Agent) []Diag {
 // hashes ../../../etc/passwd and then complains about the digest has already
 // read the file. That check is lexical, though, and a symlink is not: a
 // declared path that stays inside the root can still resolve, one level
-// further, to a target outside it. So the resolved path is checked again with
-// filepath.EvalSymlinks, against a similarly-resolved root, before the read —
-// the same refusal ValidatePromptPath gives a path that escapes lexically,
-// because from the caller's side there is no difference.
+// further, to a target outside it. So ContainedPromptPath re-checks the
+// resolved path, against a similarly-resolved root, before the read — the
+// same refusal ValidatePromptPath gives a path that escapes lexically,
+// because from the caller's side there is no difference. `catalogue publish`
+// calls the same function for the same reason: there is exactly one
+// implementation of "does this resolve inside the tree."
 func lintAgentPrompts(a Agent, opts Options) []Diag {
 	var out []Diag
 	svc := string(a.Service.FullName())
@@ -192,34 +194,22 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 					"and do check it", k)})
 			continue
 		}
-		full := filepath.Join(opts.PromptsRoot, filepath.FromSlash(p.GetPath()))
-
-		// EvalSymlinks both requires the target to exist and resolves every
-		// symlink on the way to it, so a path that is missing and a path that
-		// is a dangling symlink are reported the same way here: not there.
-		resolved, err := filepath.EvalSymlinks(full)
+		// The lexical check above cannot see a symlink: a declared path can
+		// stay inside the root as TEXT and still resolve, one level further,
+		// to a target outside it. ContainedPromptPath re-resolves both sides
+		// with filepath.EvalSymlinks before this reads anything — the one
+		// implementation of that check, shared with `catalogue publish`.
+		resolved, err := ContainedPromptPath(opts.PromptsRoot, p.GetPath())
 		if err != nil {
-			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
-				"prompts[%q]: %s does not exist under the prompts root %s: %v",
-				k, p.GetPath(), opts.PromptsRoot, err)})
-			continue
-		}
-
-		// The root itself may sit behind a symlink (a temp dir on macOS
-		// commonly does), so it is resolved the same way before the
-		// containment check — otherwise every prompt in that tree would look
-		// like it escapes.
-		resolvedRoot, err := filepath.EvalSymlinks(opts.PromptsRoot)
-		if err != nil {
-			resolvedRoot = opts.PromptsRoot
-		}
-		if rel, err := filepath.Rel(resolvedRoot, resolved); err != nil ||
-			rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
-				"prompts[%q].path %q is not usable: it resolves (following symlinks) to "+
-					"%s, which is outside the prompts root %s. Paths are relative to the "+
-					"prompts root, which is the directory containing the proto tree",
-				k, p.GetPath(), resolved, opts.PromptsRoot)})
+			if errors.Is(err, ErrPromptEscapesRoot) {
+				out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
+					"prompts[%q].path %q is not usable: %v. Paths are relative to the "+
+						"prompts root, which is the directory containing the proto tree",
+					k, p.GetPath(), err)})
+			} else {
+				out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
+					"prompts[%q]: %v", k, err)})
+			}
 			continue
 		}
 
