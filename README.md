@@ -15,7 +15,7 @@ It is not the server. That is [`garmd`](../garmd).
 | `proto/garm/tool/v1/` | The tool annotations — verb, clearance, compartments, tool sets, effects, guidance, approval, audit |
 | `proto/garm/agent/v1/` | The agent manifest — mode, principal, model, bounds, prompts, the tool allowlist and its guards |
 | `cmd/garm/` | The CLI |
-| `internal/toolgen/` | The reader, the emitter, and the lint rules |
+| `internal/compiler/` | The reader, the emitter, and the lint rules |
 | `conformance/` | Golden proto sets and the errors they must produce |
 
 ## What you type
@@ -29,9 +29,9 @@ garm catalogue publish   put it, and the prompts it pins, on an object store
 garm catalogue diff      what changed between two catalogues
 ```
 
-The binary also **contains** `protoc-gen-garm-go` and
-`protoc-gen-garm-python`, invoked by buf as local plugins. One install, not
-three — and the annotations and the generator that reads them cannot drift
+The binary also **contains** `protoc-gen-garm-go`, invoked by buf as a local
+plugin (a Python generator is not written; see KNOWN-GAPS). One install, not
+two — and the annotations and the generator that reads them cannot drift
 apart, because they are the same artifact.
 
 ## The catalogue
@@ -53,8 +53,8 @@ between them. A new annotation and the code generation that reads it are one
 change; split across two repositories they become a release dance with a
 window in which the annotation exists and nothing can compile it.
 
-The annotations are additionally published as a buf module, for anyone with a
-pipeline that prefers a registry to a vendored tree. Both paths, same source.
+The annotations are vendored into each tool repository by `garm init`; they
+are not yet published as a buf module (see KNOWN-GAPS).
 
 ## Nothing here depends on the server
 
@@ -77,5 +77,6 @@ not require the thing that enforces at run time.
 
 ## Status
 
-Not yet seeded. Intent recorded; the first cut is `init`, `gen`, `lint`, `new`
-and the generator subcommands.
+Shipped: `init`, `gen`, `lint`, `catalogue build|diff|publish`, `claims check`,
+`plugin`, `version`. Thirty-one tool lint rules (the L series) and five agent rules (A1–A5), with
+twelve conformance cases. What is still missing is in KNOWN-GAPS.md.
