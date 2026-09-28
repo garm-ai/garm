@@ -1263,8 +1263,28 @@ type Approval struct {
 	ApproverCompartments []string               `protobuf:"bytes,3,rep,name=approver_compartments,json=approverCompartments,proto3" json:"approver_compartments,omitempty"`
 	MaxGrantAgeSeconds   uint32                 `protobuf:"varint,4,opt,name=max_grant_age_seconds,json=maxGrantAgeSeconds,proto3" json:"max_grant_age_seconds,omitempty"`
 	Notes                string                 `protobuf:"bytes,5,opt,name=notes,proto3" json:"notes,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// material_fields names what a human is actually approving.
+	//
+	// Without it a grant binds only (tool, subject, time), so a fifteen-minute
+	// approval authorises any call to that tool in the window — approve ten
+	// pounds, send ten thousand. With it, the grant carries a digest over these
+	// fields' values and garmd refuses a request that does not match: the human
+	// approved THIS payment, not a payment.
+	//
+	// Each entry is a dotted path to a SCALAR leaf — string, number, bool or
+	// enum — of the request message. A path naming a message, a repeated field
+	// or a map is refused at build time, and not because those are hard: a
+	// digest over them would need a canonical protobuf encoding agreed by every
+	// language that computes or checks a grant, and a field a human cannot read
+	// in a sentence is one they cannot meaningfully approve.
+	//
+	// Absence is a value, not an omission. An unset field digests as `<unset>`,
+	// distinct from empty and from zero, so approving a request with an amount
+	// and sending one without is a mismatch — while a field whose ABSENCE is
+	// material, like an unset schedule date meaning "now", still works.
+	MaterialFields []string `protobuf:"bytes,6,rep,name=material_fields,json=materialFields,proto3" json:"material_fields,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Approval) Reset() {
@@ -1330,6 +1350,13 @@ func (x *Approval) GetNotes() string {
 		return x.Notes
 	}
 	return ""
+}
+
+func (x *Approval) GetMaterialFields() []string {
+	if x != nil {
+		return x.MaterialFields
+	}
+	return nil
 }
 
 type Example struct {
@@ -2120,13 +2147,14 @@ const file_garm_tool_v1_tool_proto_rawDesc = "" +
 	"idempotent\x12A\n" +
 	"\rreversibility\x18\x02 \x01(\x0e2\x1b.garm.tool.v1.ReversibilityR\rreversibility\x12\x1a\n" +
 	"\bexternal\x18\x03 \x01(\bR\bexternal\x12+\n" +
-	"\x11compensating_tool\x18\x04 \x01(\tR\x10compensatingTool\"\xd6\x02\n" +
+	"\x11compensating_tool\x18\x04 \x01(\tR\x10compensatingTool\"\xff\x02\n" +
 	"\bApproval\x12/\n" +
 	"\x04mode\x18\x01 \x01(\x0e2\x1b.garm.tool.v1.Approval.ModeR\x04mode\x12M\n" +
 	"\x16approver_min_clearance\x18\x02 \x01(\x0e2\x17.garm.tool.v1.ClearanceR\x14approverMinClearance\x123\n" +
 	"\x15approver_compartments\x18\x03 \x03(\tR\x14approverCompartments\x121\n" +
 	"\x15max_grant_age_seconds\x18\x04 \x01(\rR\x12maxGrantAgeSeconds\x12\x14\n" +
-	"\x05notes\x18\x05 \x01(\tR\x05notes\"L\n" +
+	"\x05notes\x18\x05 \x01(\tR\x05notes\x12'\n" +
+	"\x0fmaterial_fields\x18\x06 \x03(\tR\x0ematerialFields\"L\n" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tMODE_NONE\x10\x01\x12\x0f\n" +

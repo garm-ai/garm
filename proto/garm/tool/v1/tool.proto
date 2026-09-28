@@ -120,6 +120,27 @@ message Approval {
   repeated string approver_compartments = 3;
   uint32 max_grant_age_seconds = 4;
   string notes = 5;
+
+  // material_fields names what a human is actually approving.
+  //
+  // Without it a grant binds only (tool, subject, time), so a fifteen-minute
+  // approval authorises any call to that tool in the window — approve ten
+  // pounds, send ten thousand. With it, the grant carries a digest over these
+  // fields' values and garmd refuses a request that does not match: the human
+  // approved THIS payment, not a payment.
+  //
+  // Each entry is a dotted path to a SCALAR leaf — string, number, bool or
+  // enum — of the request message. A path naming a message, a repeated field
+  // or a map is refused at build time, and not because those are hard: a
+  // digest over them would need a canonical protobuf encoding agreed by every
+  // language that computes or checks a grant, and a field a human cannot read
+  // in a sentence is one they cannot meaningfully approve.
+  //
+  // Absence is a value, not an omission. An unset field digests as `<unset>`,
+  // distinct from empty and from zero, so approving a request with an amount
+  // and sending one without is a mismatch — while a field whose ABSENCE is
+  // material, like an unset schedule date meaning "now", still works.
+  repeated string material_fields = 6;
 }
 
 message Example { string description = 1; string request_json = 2; }

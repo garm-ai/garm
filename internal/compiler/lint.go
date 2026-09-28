@@ -63,6 +63,7 @@ func Lint(fds []protoreflect.FileDescriptor) []Diag {
 	out = append(out, lintServiceCoverage(fds)...)
 	tools, _ := Tools(fds)
 	out = append(out, LintEffects(tools)...)
+	out = append(out, lintMaterialFields(tools)...)
 	return out
 }
 
