@@ -58,13 +58,46 @@ var toolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // Rather than write a second walker over the same message just to duplicate
 // that traversal, lintMessage takes a recordResponse flag and reports L22
 // itself when walking a tool's output.
-func Lint(fds []protoreflect.FileDescriptor) []Diag {
+//
+// A1-A5 are the agent rules (program plan §3.2) and live in lint_agent.go.
+// They are dispatched from LintWith rather than from here because A2 needs a
+// prompts root, which a descriptor set does not carry.
+
+// Options is the context a rule needs that a descriptor set cannot carry.
+//
+// One field so far, and it is deliberately not a path baked into a rule: the
+// same descriptor set is linted by `garm lint`, by `garm catalogue build` and
+// by the protoc plugin, and only the first two know where the tree they came
+// from is on disk.
+type Options struct {
+	// PromptsRoot is the directory a prompts.*.path (A2) is resolved
+	// against — the directory containing the proto tree.
+	//
+	// Empty means the caller could not supply one. The protoc plugin is
+	// invoked by buf once per proto package with no notion of a tree root,
+	// so A2 warns there rather than checking, and says which command does
+	// check. Silently skipping would make A2 a rule that is enforced
+	// wherever nobody is looking.
+	PromptsRoot string
+}
+
+// LintWith runs every rule this package owns with the supplied options.
+//
+// Lint is this with zero options, and remains the entry point for callers
+// that have no filesystem context — the protoc plugin, and the unit tests of
+// rules that need none.
+func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
 	tools, _ := Tools(fds)
 	out = append(out, LintEffects(tools)...)
 	out = append(out, lintMaterialFields(tools)...)
+	out = append(out, lintAgents(fds, opts)...)
 	return out
+}
+
+func Lint(fds []protoreflect.FileDescriptor) []Diag {
+	return LintWith(fds, Options{})
 }
 
 // lintFieldAndShapeRules implements L1-L11, L19, L20 and L29.

@@ -1,0 +1,1 @@
+error: A1: conformance.a1.Assistant.Cancel: an agent service declares only Invoke and GetRun; "Cancel" is a third method. The governed door is two RPCs: one that starts a run and one that reads it
