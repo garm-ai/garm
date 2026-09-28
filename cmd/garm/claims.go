@@ -78,6 +78,27 @@ func runClaimsCheck(out, errOut io.Writer, policyPath, cataloguePath string) err
 			cataloguePath, policyPath)
 	}
 
+	// The same reasoning, mirrored onto the policy side. A policy that
+	// references zero compartments AND zero tool sets gives this command
+	// nothing to compare, and "0 and 0, all declared" reads exactly like a
+	// clean run. The way that happens in practice is a misspelled key —
+	// `compartment:` for `compartments:`, `toolsets:` for `tool_sets:` —
+	// which the reader ignores by design (see internal/claimscheck: it must
+	// stay permissive to read two policy shapes with one decoder), so this
+	// is the layer that has to notice. Note the guard is about the file, not
+	// any one role: a role granting only a clearance and verbs is legal and
+	// stays legal, as long as *something* in the file names a compartment or
+	// a tool set.
+	if len(refs.Compartments) == 0 && len(refs.ToolSets) == 0 {
+		return fmt.Errorf(
+			"claims check: %s references no compartments and no tool sets across "+
+				"its %d role(s); there is nothing to check against %s (a vacuous "+
+				"\"0 problems\" would mean the check did nothing). If its roles do "+
+				"grant a compartment or a tool set, check the spelling of the "+
+				"compartments: and tool_sets: keys",
+			policyPath, refs.Roles, cataloguePath)
+	}
+
 	problems := 0
 	problems += reportUndeclared(errOut, "compartment", refs.Compartments, declaredCompartments, refs.CompartmentRoles)
 	problems += reportUndeclared(errOut, "tool set", refs.ToolSets, declaredSets, refs.ToolSetRoles)

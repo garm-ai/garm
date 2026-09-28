@@ -199,3 +199,57 @@ roles:
 		t.Errorf("expected no per-reference findings when the catalogue itself is the problem, got: %q", stderr)
 	}
 }
+
+// The mirror of TestClaimsCheckRefusesACatalogueThatDeclaresNoVocabulary, on
+// the policy side. `compartment:` (singular) is not a key this reader knows,
+// and it must not be — it reads two policy shapes with one decoder and
+// cannot tell a typo from a shape-specific key. So the file references
+// nothing, and "0 compartment(s) and 0 tool set(s) ... all declared" would
+// be a pass having checked nothing. Refuse instead.
+func TestClaimsCheckRefusesAPolicyThatReferencesNoVocabulary(t *testing.T) {
+	dir := fixture(t)
+	withTaxonomy(t, dir, []string{"financial"}, []string{"self-service"})
+	cat := filepath.Join(t.TempDir(), "c.binpb")
+	build(t, dir, cat)
+
+	policy := writePolicy(t, `
+roles:
+  payments-desk: { clearance: RESTRICTED, compartment: [financial], toolsets: [self-service] }
+`)
+
+	stdout, _, err := execClaimsCheck(t, policy, "--against", cat)
+	if err == nil {
+		t.Fatalf("a policy referencing nothing must fail, not pass vacuously (stdout: %q)", stdout)
+	}
+	if !strings.Contains(err.Error(), policy) {
+		t.Errorf("err = %q, want it to name the policy %q", err.Error(), policy)
+	}
+	if strings.Contains(stdout, "ok —") {
+		t.Errorf("stdout = %q, must not report success", stdout)
+	}
+}
+
+// The guard above is about the file, not any one role. A role granting only
+// a clearance and verbs — devkit's read-only persona is exactly that — is
+// legal, and stays legal as long as something in the file names a
+// compartment or a tool set.
+func TestClaimsCheckAcceptsARoleThatGrantsOnlyClearanceAndVerbs(t *testing.T) {
+	dir := fixture(t)
+	withTaxonomy(t, dir, []string{"financial"}, nil)
+	cat := filepath.Join(t.TempDir(), "c.binpb")
+	build(t, dir, cat)
+
+	policy := writePolicy(t, `
+roles:
+  read-only:     { clearance: INTERNAL, verbs: [READ] }
+  payments-desk: { clearance: RESTRICTED, compartments: [financial], verbs: [READ, WRITE] }
+`)
+
+	stdout, stderr, err := execClaimsCheck(t, policy, "--against", cat)
+	if err != nil {
+		t.Fatalf("claims check: %v (stderr: %s)", err, stderr)
+	}
+	if !strings.HasPrefix(stdout, "ok —") {
+		t.Errorf("stdout = %q, want the success line", stdout)
+	}
+}

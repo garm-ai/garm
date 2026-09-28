@@ -35,6 +35,15 @@ type Refs struct {
 // yaml.Decoder.KnownFields(true) — turning it on would make this reader
 // reject either file shape (or the next one) over fields it was never
 // meant to understand.
+//
+// The residual limit that design accepts: a misspelled key *inside* a role —
+// `compartment:` for `compartments:`, `toolsets:` for `tool_sets:` — is
+// silently ignored here, because to this decoder it is indistinguishable
+// from the shape-specific keys it is meant to skip. Nothing at this layer
+// can tell the two apart without the known-key set this reader exists to
+// avoid. The caller catches the consequence instead: `garm claims check`
+// refuses a policy whose roles collectively reference zero compartments and
+// zero tool sets, which is what a typo'd key produces.
 type policyFile struct {
 	Roles map[string]struct {
 		Compartments []string `yaml:"compartments"`
