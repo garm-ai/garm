@@ -118,8 +118,11 @@ func generate(gen *protogen.Plugin, diagOut io.Writer, opts genOptions) error {
 
 	// Lint the whole input set, not only the files being generated: a
 	// compartment declared in a dependency is still in scope, and a
-	// duplicate tool name across files must be caught.
-	diags := dedupeDiags(compiler.Lint(fds))
+	// duplicate tool name across files must be caught. The set is still one
+	// generation unit — buf invokes this plugin per directory — so the rules
+	// that resolve an agent's allowlist against the catalogue warn here and
+	// are enforced by `garm lint` and `garm catalogue build`.
+	diags := dedupeDiags(compiler.LintWith(fds, compiler.Options{PartialSet: true}))
 	errs := 0
 	for _, d := range diags {
 		fmt.Fprintln(diagOut, d.String())

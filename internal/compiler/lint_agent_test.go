@@ -693,3 +693,37 @@ func TestA5AcceptsIdenticalLabels(t *testing.T) {
 		}
 	}
 }
+
+// The protoc plugin sees one directory at a time. An agent whose allowlist
+// names a tool from another directory must not be refused there — that is
+// what `garm lint` over the whole tree is for — but it must not be waved
+// through silently either.
+func TestAPartialSetWarnsInsteadOfResolvingTheAllowlist(t *testing.T) {
+	// The allowlist names a tool this set does not contain.
+	files := agentSrc(strings.Replace(fullPolicy,
+		`tools: [{ fqn: "bank.v1.support_assistant" }]`,
+		`tools: [{ fqn: "payments.v1.initiate_payment" guard: "args.amount <= 1" }]`, 1))
+	fds := compileSource(t, files)
+
+	full := compiler.LintWith(fds, compiler.Options{})
+	if !hasError(full, "A3", "names no tool in this catalogue") {
+		t.Fatalf("a full lint did not refuse the unknown tool: %v", full)
+	}
+
+	partial := compiler.LintWith(fds, compiler.Options{PartialSet: true})
+	for _, d := range partial {
+		if (d.Rule == "A3" || d.Rule == "A4") && !d.Warn {
+			t.Fatalf("a partial set refused with %s: %s", d.Rule, d.Msg)
+		}
+	}
+	warned := false
+	for _, d := range partial {
+		if d.Rule == "A3" && d.Warn && d.Path == "bank.v1.SupportAssistant" &&
+			strings.Contains(d.Msg, "not checked here") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("a partial set skipped the allowlist without saying so: %v", partial)
+	}
+}

@@ -51,6 +51,17 @@ type Options struct {
 	// check. Silently skipping would make A2 a rule that is enforced
 	// wherever nobody is looking.
 	PromptsRoot string
+
+	// PartialSet says the input is one generation unit, not the catalogue.
+	// buf runs the protoc plugin once per directory, so an agent's allowlist
+	// cannot be resolved there: the tools it names live in other
+	// directories that are not in the request. With PartialSet the
+	// catalogue-scoped rules — A3, and the guard compilation half of A4 —
+	// warn that they were not checked here and name the commands that do
+	// check them, instead of refusing every agent that names a tool
+	// outside its own directory. `garm lint` and `garm catalogue build` see
+	// the whole tree and never set this.
+	PartialSet bool
 }
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is

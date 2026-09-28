@@ -47,3 +47,9 @@ services, so only the fixture's `TestService` case survives here. The
 `toolplane`. They arrive here only if those dependencies are extracted, and
 dragging the product across to keep a command would defeat the boundary in
 `CLAUDE.md`.
+
+- **The protoc plugin does not resolve an agent's allowlist.** buf invokes
+  `protoc-gen-garm-go` once per directory, so the tools an agent names usually
+  live outside the request. The plugin warns (A3) that the allowlist and its
+  guards were not checked and names the commands that do: `garm lint` over the
+  proto tree and `garm catalogue build`, which refuses on any A-rule error.
