@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -10,7 +11,7 @@ import (
 )
 
 func newLintCmd() *cobra.Command {
-	var protoDir string
+	var protoDir, promptsRoot string
 	cmd := &cobra.Command{
 		Use:   "lint",
 		Short: "Check tool declarations without generating anything",
@@ -26,7 +27,9 @@ func newLintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			diags := compiler.Lint(fds)
+			diags := compiler.LintWith(fds, compiler.Options{
+				PromptsRoot: resolvePromptsRoot(promptsRoot, protoDir),
+			})
 			errs := 0
 			for _, d := range diags {
 				fmt.Fprintln(cmd.ErrOrStderr(), d.String())
@@ -42,5 +45,21 @@ func newLintCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&protoDir, "proto", "proto", "Root of the proto tree")
+	cmd.Flags().StringVar(&promptsRoot, "prompts-root", "",
+		"Directory an agent's prompts.*.path resolves against (default: the parent of --proto)")
 	return cmd
+}
+
+// resolvePromptsRoot answers "relative to what" for an agent's prompt paths.
+//
+// The directory CONTAINING the proto tree, so that a checkout laid out as
+// proto/ beside prompts/ — which is how the bank example is laid out and how
+// the declaration `prompts/support-assistant.md` reads — needs no flag at all.
+// `garm catalogue publish` has no proto tree and defaults to the working
+// directory, which is the same place.
+func resolvePromptsRoot(promptsRoot, protoDir string) string {
+	if promptsRoot != "" {
+		return promptsRoot
+	}
+	return filepath.Dir(protoDir)
 }

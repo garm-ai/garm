@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -275,5 +276,93 @@ func TestInitWiresTheToolPlugin(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "third_party", "proto", "garm", "tool", "v1", "tool.proto")); err != nil {
 		t.Errorf("annotations are not where buf.yaml says they are: %v", err)
+	}
+}
+
+// writeAgentFixture writes an agent service beside its prompts, at the layout
+// --prompts-root defaults to: proto/ and prompts/ as siblings under dir. The
+// declared hash is the caller's to vary, since the two tests that use this
+// differ only in whether it matches the prompt on disk.
+func writeAgentFixture(t *testing.T, dir, sha string) {
+	t.Helper()
+	agentDir := filepath.Join(dir, "proto", "bank", "v1")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	agent := `syntax = "proto3";
+package bank.v1;
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/bank/v1;bankv1";
+message Ask {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string question = 1;
+}
+service Assistant {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+    principal: { clearance: CLEARANCE_INTERNAL }
+    model: { alias: "fast" }
+    bounds: { max_steps: 8 }
+    prompts: { key: "system" value: { path: "prompts/system.md" sha256: "` + sha + `" } }
+  };
+  rpc Invoke(Ask) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant" title: "Assistant" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.proto"), []byte(agent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prompts", "system.md"),
+		[]byte("You are a support assistant. Answer from the tools you are given.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A catalogue that pins a prompt by hash and a tree whose prompt says
+// something else is the change that must never ship: the runner fetches
+// prompts/<sha256>.md and would serve instructions nobody reviewed, or refuse
+// the agent at load time in production. `catalogue build` lints first, so this
+// is a build error with the author present.
+func TestCatalogueBuildRefusesADriftedPrompt(t *testing.T) {
+	dir := fixture(t)
+	writeAgentFixture(t, dir, "0000000000000000000000000000000000000000000000000000000000000000")
+
+	root := newRoot()
+	root.SetArgs([]string{"catalogue", "build",
+		"--proto", filepath.Join(dir, "proto"),
+		"-o", filepath.Join(t.TempDir(), "catalogue.binpb")})
+	var errBuf bytes.Buffer
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&errBuf)
+	if err := root.Execute(); err == nil {
+		t.Fatal("a catalogue with a drifted prompt was built")
+	}
+	if !strings.Contains(errBuf.String(), "A2") {
+		t.Errorf("the refusal does not name A2:\n%s", errBuf.String())
+	}
+}
+
+// And the default prompts root is the parent of --proto: the same tree with
+// the correct hash builds with no --prompts-root at all.
+func TestCatalogueBuildResolvesPromptsBesideTheProtoTree(t *testing.T) {
+	dir := fixture(t)
+	// (same tree as above, with sha256 d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a)
+	writeAgentFixture(t, dir, "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a")
+	root := newRoot()
+	root.SetArgs([]string{"catalogue", "build",
+		"--proto", filepath.Join(dir, "proto"),
+		"-o", filepath.Join(t.TempDir(), "catalogue.binpb")})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("a correct tree failed to build: %v", err)
 	}
 }

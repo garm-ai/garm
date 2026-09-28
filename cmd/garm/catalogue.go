@@ -29,7 +29,7 @@ func newCatalogueCmd() *cobra.Command {
 }
 
 func newCatalogueBuildCmd() *cobra.Command {
-	var protoDir, out, source string
+	var protoDir, promptsRoot, out, source string
 	var stampTime bool
 	cmd := &cobra.Command{
 		Use:   "build",
@@ -45,10 +45,12 @@ func newCatalogueBuildCmd() *cobra.Command {
 			"upgraded a CLI on their laptop.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCatalogueBuild(cmd, protoDir, out, source, stampTime)
+			return runCatalogueBuild(cmd, protoDir, promptsRoot, out, source, stampTime)
 		},
 	}
 	cmd.Flags().StringVar(&protoDir, "proto", "proto", "Root of the proto tree")
+	cmd.Flags().StringVar(&promptsRoot, "prompts-root", "",
+		"Directory an agent's prompts.*.path resolves against (default: the parent of --proto)")
 	cmd.Flags().StringVarP(&out, "out", "o", "catalogue.binpb", "Where to write the artifact")
 	cmd.Flags().StringVar(&source, "source", "", "Free-form provenance: a repository and commit, a pipeline id")
 	cmd.Flags().BoolVar(&stampTime, "stamp-time", false,
@@ -56,14 +58,16 @@ func newCatalogueBuildCmd() *cobra.Command {
 	return cmd
 }
 
-func runCatalogueBuild(cmd *cobra.Command, protoDir, out, source string, stampTime bool) error {
+func runCatalogueBuild(cmd *cobra.Command, protoDir, promptsRoot, out, source string, stampTime bool) error {
 	set, fds, err := compile.Tree(cmd.Context(), protoDir)
 	if err != nil {
 		return err
 	}
 
 	// Lint before building, never after. See the command's Long.
-	diags := compiler.Lint(fds)
+	diags := compiler.LintWith(fds, compiler.Options{
+		PromptsRoot: resolvePromptsRoot(promptsRoot, protoDir),
+	})
 	errs := 0
 	for _, d := range diags {
 		fmt.Fprintln(cmd.ErrOrStderr(), d.String())

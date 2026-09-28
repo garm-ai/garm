@@ -1,8 +1,12 @@
 package compiler_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/garm-ai/garm/internal/compiler"
 )
@@ -119,5 +123,115 @@ func TestA1AcceptsTheWellFormedAgent(t *testing.T) {
 		if d.Rule == "A1" {
 			t.Errorf("the well-formed agent produced an A1: %s", d.String())
 		}
+	}
+}
+
+// a2Tree writes a fixture whose prompts root is the temp tree itself, so the
+// declared path "prompts/system.md" resolves the way it does in a real
+// checkout: proto/ and prompts/ as siblings.
+func a2Tree(t *testing.T, promptPath, sha, body string) (fds []protoreflect.FileDescriptor, root string) {
+	t.Helper()
+	root = t.TempDir()
+	if body != "" {
+		p := filepath.Join(root, "prompts", "system.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy := strings.Replace(fullPolicy,
+		`prompts: { key: "system" value: { path: "prompts/support.md" sha256: "`+emptySHA+`" } }`,
+		`prompts: { key: "system" value: { path: "`+promptPath+`" sha256: "`+sha+`" } }`, 1)
+	return compileSource(t, agentSrc(policy)), root
+}
+
+const helloPrompt = "You are a support assistant. Answer from the tools you are given.\n"
+const helloSHA = "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a"
+
+func TestA2AcceptsAPromptThatExistsAndHashes(t *testing.T) {
+	fds, root := a2Tree(t, "prompts/system.md", helloSHA, helloPrompt)
+	for _, d := range compiler.LintWith(fds, compiler.Options{PromptsRoot: root}) {
+		if d.Rule == "A2" {
+			t.Errorf("a correct prompt produced an A2: %s", d.String())
+		}
+	}
+}
+
+func TestA2RefusesAPromptThatHashesDifferently(t *testing.T) {
+	fds, root := a2Tree(t, "prompts/system.md", emptySHA, helloPrompt)
+	diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: root})
+	if !hasError(diags, "A2", "but the declaration says") {
+		t.Errorf("a drifted prompt was accepted:\n%s", render(diags))
+	}
+}
+
+func TestA2RefusesAPromptThatIsNotThere(t *testing.T) {
+	fds, root := a2Tree(t, "prompts/system.md", helloSHA, "")
+	diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: root})
+	if !hasError(diags, "A2", "does not exist under the prompts root") {
+		t.Errorf("a missing prompt was accepted:\n%s", render(diags))
+	}
+}
+
+// Review Focus 3 — a declared path that leaves the tree. The linter must
+// refuse the declaration rather than read, hash and bless whatever is there.
+func TestA2RefusesAPromptPathThatEscapesTheRoot(t *testing.T) {
+	for _, p := range []string{"../secrets.md", "prompts/../../secrets.md", "/etc/passwd"} {
+		fds, root := a2Tree(t, p, helloSHA, helloPrompt)
+		diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: root})
+		if !hasError(diags, "A2", "prompts root") {
+			t.Errorf("the path %q was accepted:\n%s", p, render(diags))
+		}
+	}
+}
+
+// Review Focus 4 — the digest is lowercase hex with no prefix (program plan
+// §3.1). An uppercase one never matches a computed digest and would also be a
+// different object key on S3, so it is refused as malformed rather than
+// reported as a mismatch.
+func TestA2RefusesASha256ThatIsNotLowercaseHex(t *testing.T) {
+	for _, tc := range []struct{ sha, want string }{
+		{strings.ToUpper(helloSHA), "lowercase"},
+		{"sha256:" + helloSHA, "no prefix"},
+		{helloSHA[:32], "must be 64"},
+	} {
+		fds, root := a2Tree(t, "prompts/system.md", tc.sha, helloPrompt)
+		diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: root})
+		if !hasError(diags, "A2", tc.want) {
+			t.Errorf("the sha256 %q was accepted:\n%s", tc.sha, render(diags))
+		}
+	}
+}
+
+// The "system" key is required (program plan §3.1). An agent with no system
+// prompt has no instructions, and the runner would hand the model an empty
+// system message rather than refusing.
+func TestA2RequiresASystemPrompt(t *testing.T) {
+	policy := strings.Replace(fullPolicy, `key: "system"`, `key: "critic"`, 1)
+	fds := compileSource(t, agentSrc(policy))
+	diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: t.TempDir()})
+	if !hasError(diags, "A2", `no "system" entry`) {
+		t.Errorf("an agent with no system prompt was accepted:\n%s", render(diags))
+	}
+}
+
+// With no prompts root there is nothing to resolve against. A2 says so, as a
+// warning, rather than silently passing — a rule enforced only where nobody
+// is looking is worse than no rule.
+func TestA2WarnsWhenThereIsNoPromptsRoot(t *testing.T) {
+	fds, _ := a2Tree(t, "prompts/system.md", helloSHA, helloPrompt)
+	var warned bool
+	for _, d := range compiler.LintWith(fds, compiler.Options{}) {
+		if d.Rule == "A2" {
+			if !d.Warn {
+				t.Errorf("A2 is an error with no prompts root: %s", d.String())
+			}
+			warned = true
+		}
+	}
+	if !warned {
+		t.Error("A2 said nothing at all with no prompts root")
 	}
 }

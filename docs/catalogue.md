@@ -135,6 +135,27 @@ cannot be built. The alternative is an artifact that fails later at the
 daemon's mount check — where the author is not present, and the failure is an
 outage rather than a build error.
 
+### Prompts are resolved beside the proto tree
+
+An agent's `prompts.*.path` is relative to the directory that **contains** the
+proto tree — the parent of `--proto`, which for the default `--proto proto` is
+the directory you are standing in. A repository laid out as
+
+```
+proto/bank/agents/v1/support_assistant.proto
+prompts/support-assistant.md
+```
+
+declares `path: "prompts/support-assistant.md"` and needs no flag.
+`--prompts-root DIR` overrides it, and `garm catalogue publish` takes the same
+flag, defaulting to the working directory — the same place.
+
+The path may not leave that root: an absolute path, or one that climbs out with
+`..`, is a build error rather than a file that gets read and hashed. The
+`sha256` is lowercase hex with no `sha256:` prefix, because it is compared
+against a digest computed at load time and it is also the object key the prompt
+is published under.
+
 It also refuses to write a catalogue with no tools in it. A daemon started on
 an empty catalogue serves nothing, and that is never what anyone meant.
 

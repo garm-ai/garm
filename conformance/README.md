@@ -17,6 +17,7 @@ cases/
   L3-name-reused-across-packages/   short names are unique across the WHOLE catalogue
   L30-flattened-name-too-long/      a name a client sees must fit in 63 characters
   A1-third-method/                  an agent service is Invoke and GetRun and nothing else
+  A2-prompt-hash-mismatch/          a prompt is pinned by hash; the file must match
 ```
 
 ## Running
@@ -52,7 +53,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Eight cases against 32 rules. The rule count is the number of distinct rule
+Nine cases against 33 rules. The rule count is the number of distinct rule
 IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
 incremented tally — recount it after adding a rule with:
 

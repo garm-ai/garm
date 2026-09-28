@@ -1,0 +1,37 @@
+syntax = "proto3";
+package conformance.a2;
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/a2;c";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
+
+message Ask {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string question = 1;
+}
+
+// The prompt was edited and the hash was not. The runner fetches
+// prompts/<sha256>.md from the object store, so what would ship is either an
+// agent refused by name at load time, or — if an old object still exists under
+// the stale hash — instructions nobody reviewed.
+service Assistant {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+    principal: { clearance: CLEARANCE_INTERNAL }
+    model: { alias: "fast" }
+    bounds: { max_steps: 8 max_tokens: 100000 max_tool_calls: 20 timeout: { seconds: 600 } }
+    prompts: { key: "system" value: { path: "prompts/system.md" sha256: "0000000000000000000000000000000000000000000000000000000000000000" } }
+  };
+  rpc Invoke(Ask) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant" title: "Assistant" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant_run" title: "Assistant run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+}

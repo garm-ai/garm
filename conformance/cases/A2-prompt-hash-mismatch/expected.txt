@@ -1,0 +1,1 @@
+error: A2: conformance.a2.Assistant: prompts["system"]: prompts/system.md hashes to d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a, but the declaration says 0000000000000000000000000000000000000000000000000000000000000000. The hash is what the runner fetches by and verifies against; update it in the same commit as the prompt
