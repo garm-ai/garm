@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -116,7 +117,12 @@ func lintAgentShape(a Agent) []Diag {
 // Note what A2 does NOT do: it never reads a file outside the prompts root.
 // ValidatePromptPath runs before os.ReadFile, not after, because a linter that
 // hashes ../../../etc/passwd and then complains about the digest has already
-// read the file.
+// read the file. That check is lexical, though, and a symlink is not: a
+// declared path that stays inside the root can still resolve, one level
+// further, to a target outside it. So the resolved path is checked again with
+// filepath.EvalSymlinks, against a similarly-resolved root, before the read —
+// the same refusal ValidatePromptPath gives a path that escapes lexically,
+// because from the caller's side there is no difference.
 func lintAgentPrompts(a Agent, opts Options) []Diag {
 	var out []Diag
 	svc := string(a.Service.FullName())
@@ -156,11 +162,41 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 			continue
 		}
 		full := filepath.Join(opts.PromptsRoot, filepath.FromSlash(p.GetPath()))
-		body, err := os.ReadFile(full)
+
+		// EvalSymlinks both requires the target to exist and resolves every
+		// symlink on the way to it, so a path that is missing and a path that
+		// is a dangling symlink are reported the same way here: not there.
+		resolved, err := filepath.EvalSymlinks(full)
 		if err != nil {
 			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
-				"prompts[%q]: %s does not exist under the prompts root %s",
-				k, p.GetPath(), opts.PromptsRoot)})
+				"prompts[%q]: %s does not exist under the prompts root %s: %v",
+				k, p.GetPath(), opts.PromptsRoot, err)})
+			continue
+		}
+
+		// The root itself may sit behind a symlink (a temp dir on macOS
+		// commonly does), so it is resolved the same way before the
+		// containment check — otherwise every prompt in that tree would look
+		// like it escapes.
+		resolvedRoot, err := filepath.EvalSymlinks(opts.PromptsRoot)
+		if err != nil {
+			resolvedRoot = opts.PromptsRoot
+		}
+		if rel, err := filepath.Rel(resolvedRoot, resolved); err != nil ||
+			rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
+				"prompts[%q].path %q is not usable: it resolves (following symlinks) to "+
+					"%s, which is outside the prompts root %s. Paths are relative to the "+
+					"prompts root, which is the directory containing the proto tree",
+				k, p.GetPath(), resolved, opts.PromptsRoot)})
+			continue
+		}
+
+		body, err := os.ReadFile(resolved)
+		if err != nil {
+			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
+				"prompts[%q]: %s does not exist under the prompts root %s: %v",
+				k, p.GetPath(), opts.PromptsRoot, err)})
 			continue
 		}
 		sum := sha256.Sum256(body)

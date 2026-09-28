@@ -55,8 +55,8 @@ func newLintCmd() *cobra.Command {
 // The directory CONTAINING the proto tree, so that a checkout laid out as
 // proto/ beside prompts/ — which is how the bank example is laid out and how
 // the declaration `prompts/support-assistant.md` reads — needs no flag at all.
-// `garm catalogue publish` has no proto tree and defaults to the working
-// directory, which is the same place.
+// `garm catalogue publish`, when it lands, has no proto tree and defaults to
+// the working directory, which is the same place.
 func resolvePromptsRoot(promptsRoot, protoDir string) string {
 	if promptsRoot != "" {
 		return promptsRoot

@@ -147,8 +147,9 @@ prompts/support-assistant.md
 ```
 
 declares `path: "prompts/support-assistant.md"` and needs no flag.
-`--prompts-root DIR` overrides it, and `garm catalogue publish` takes the same
-flag, defaulting to the working directory — the same place.
+`--prompts-root DIR` overrides it. `garm catalogue publish`, when it lands,
+will take the same flag, defaulting to the working directory — the same
+place.
 
 The path may not leave that root: an absolute path, or one that climbs out with
 `..`, is a build error rather than a file that gets read and hashed. The

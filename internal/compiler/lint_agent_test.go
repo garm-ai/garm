@@ -3,6 +3,7 @@ package compiler_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -177,13 +178,79 @@ func TestA2RefusesAPromptThatIsNotThere(t *testing.T) {
 
 // Review Focus 3 — a declared path that leaves the tree. The linter must
 // refuse the declaration rather than read, hash and bless whatever is there.
+//
+// Pinned with hasDiag's "is not usable" rather than hasError's looser
+// "prompts root": that substring also appears in the missing-file message
+// ("does not exist under the prompts root"), and none of these three targets
+// actually exists where the escape would resolve to — so with the
+// ValidatePromptPath guard deleted, the linter falls through to "the file is
+// not there" (a genuine substring match on "prompts root") without ever
+// exercising the escape refusal. Pinning "is not usable" fails closed against
+// that: it is the wording only ValidatePromptPath's error produces.
 func TestA2RefusesAPromptPathThatEscapesTheRoot(t *testing.T) {
 	for _, p := range []string{"../secrets.md", "prompts/../../secrets.md", "/etc/passwd"} {
 		fds, root := a2Tree(t, p, helloSHA, helloPrompt)
 		diags := compiler.LintWith(fds, compiler.Options{PromptsRoot: root})
-		if !hasError(diags, "A2", "prompts root") {
+		if !hasDiag(diags, "A2", "bank.v1.SupportAssistant", "is not usable") {
 			t.Errorf("the path %q was accepted:\n%s", p, render(diags))
 		}
+	}
+}
+
+// The mutation the substring above cannot catch on its own: an escape target
+// that really exists, with a hash that really matches. If ValidatePromptPath
+// were ever skipped, this is the case that would otherwise sail through as a
+// correct prompt — the read would succeed and the digest would agree —
+// rather than fail for the unrelated reason "the file is not there".
+func TestA2RefusesAPromptPathThatEscapesTheRootEvenWhenTheTargetExistsAndMatches(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A sibling of root, not under it: exactly what "../secrets.md" resolves
+	// to once joined against root.
+	if err := os.WriteFile(filepath.Join(parent, "secrets.md"), []byte(helloPrompt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	policy := strings.Replace(fullPolicy,
+		`prompts: { key: "system" value: { path: "prompts/support.md" sha256: "`+emptySHA+`" } }`,
+		`prompts: { key: "system" value: { path: "../secrets.md" sha256: "`+helloSHA+`" } }`, 1)
+	diags := compiler.LintWith(compileSource(t, agentSrc(policy)), compiler.Options{PromptsRoot: root})
+	if !hasDiag(diags, "A2", "bank.v1.SupportAssistant", "is not usable") {
+		t.Errorf("a path escaping the root was accepted because the file it "+
+			"escapes to happens to exist and hash correctly:\n%s", render(diags))
+	}
+}
+
+// Item 3 (ruled in) — the escape check up to here is lexical, so it never
+// sees a symlink: the declared path "prompts/system.md" never leaves the
+// root as TEXT, and only escapes one level further, when that name on disk
+// is a symlink resolving outside the root. Without resolving symlinks before
+// the read, this would be followed, read and hashed like any other prompt.
+func TestA2RefusesASymlinkThatEscapesTheRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Symlink needs elevated privileges on windows")
+	}
+	parent := t.TempDir()
+	root := filepath.Join(parent, "root")
+	if err := os.MkdirAll(filepath.Join(root, "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(parent, "secrets.md")
+	if err := os.WriteFile(outside, []byte(helloPrompt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "prompts", "system.md")); err != nil {
+		t.Fatal(err)
+	}
+	policy := strings.Replace(fullPolicy,
+		`prompts: { key: "system" value: { path: "prompts/support.md" sha256: "`+emptySHA+`" } }`,
+		`prompts: { key: "system" value: { path: "prompts/system.md" sha256: "`+helloSHA+`" } }`, 1)
+	diags := compiler.LintWith(compileSource(t, agentSrc(policy)), compiler.Options{PromptsRoot: root})
+	if !hasDiag(diags, "A2", "bank.v1.SupportAssistant", "is not usable") {
+		t.Errorf("a symlink escaping the root was accepted, and its target read and "+
+			"hashed:\n%s", render(diags))
 	}
 }
 
