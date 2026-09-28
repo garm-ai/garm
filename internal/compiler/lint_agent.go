@@ -75,6 +75,21 @@ func lintAgentShape(a Agent) []Diag {
 		case "Invoke", "GetRun":
 			continue
 		}
+		// "Third method" is the right word only when Invoke is present: a
+		// service that is missing Invoke and has one extra method does not
+		// have three RPCs, it has two, and the extra one is not "the third"
+		// — it is just not named right. Reported separately from the
+		// missing-Invoke diagnostic above (rather than suppressed) because
+		// the two are independent facts: a service can be missing Invoke
+		// *and* carry a genuine third method, and each needs to be named so
+		// both get fixed in one pass.
+		if a.Invoke == nil {
+			out = append(out, Diag{Rule: "A1", Path: string(md.FullName()), Msg: fmt.Sprintf(
+				"an agent service declares only Invoke and GetRun; %q is neither Invoke "+
+					"nor GetRun. The governed door is two RPCs: one that starts a run and "+
+					"one that reads it", md.Name())})
+			continue
+		}
 		out = append(out, Diag{Rule: "A1", Path: string(md.FullName()), Msg: fmt.Sprintf(
 			"an agent service declares only Invoke and GetRun; %q is a third method. "+
 				"The governed door is two RPCs: one that starts a run and one that reads it",

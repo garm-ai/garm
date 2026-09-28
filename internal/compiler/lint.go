@@ -35,34 +35,6 @@ func (d Diag) String() string {
 // from an explicit ToolPolicy.Name or is derived by DefaultToolName.
 var toolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
-// Lint runs every rule this package owns (L1-L11, L19, L20 — L8 is vacant,
-// superseded — plus L12-L18, L21-L24 and L26-L29) over the input set.
-//
-// L28 is the declared-name-format rule that landed on main in PR #36; it is
-// thirty lines below, having arrived here on rebase. L29 was chosen over the
-// then-locally-free L28 precisely so the two would not collide when that
-// happened, and the reason stands: check MAIN, not just this file, before
-// taking the next rule number. What it did not save us from is the two rules
-// interacting once both were present — see lintFieldAndShapeRules.
-//
-// L25 is reserved for Plan D's registration-time streaming check, which is a
-// Go-level check rather than a descriptor one; it is deliberately not
-// implemented here and its number is not reused.
-//
-// Lint is a thin dispatcher on purpose: Task 10 owns L12-L18 and L21-L24 and
-// appends its own diagnostics here without needing to touch
-// lintFieldAndShapeRules' internals. The one exception is L22: it needs
-// lintMessage's existing per-field walk of the *output* message (to find a
-// RESTRICTED read clearance) cross-referenced with the tool's
-// audit.record_response, which lives on ToolPolicy rather than on any field.
-// Rather than write a second walker over the same message just to duplicate
-// that traversal, lintMessage takes a recordResponse flag and reports L22
-// itself when walking a tool's output.
-//
-// A1-A5 are the agent rules (program plan §3.2) and live in lint_agent.go.
-// They are dispatched from LintWith rather than from here because A2 needs a
-// prompts root, which a descriptor set does not carry.
-
 // Options is the context a rule needs that a descriptor set cannot carry.
 //
 // One field so far, and it is deliberately not a path baked into a rule: the
@@ -81,11 +53,34 @@ type Options struct {
 	PromptsRoot string
 }
 
-// LintWith runs every rule this package owns with the supplied options.
+// LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
+// vacant, superseded — plus L12-L18, L21-L24, L26-L29 and A1-A5) over the
+// input set, with the supplied options.
 //
-// Lint is this with zero options, and remains the entry point for callers
-// that have no filesystem context — the protoc plugin, and the unit tests of
-// rules that need none.
+// L28 is the declared-name-format rule that landed on main in PR #36; it is
+// thirty lines below, having arrived here on rebase. L29 was chosen over the
+// then-locally-free L28 precisely so the two would not collide when that
+// happened, and the reason stands: check MAIN, not just this file, before
+// taking the next rule number. What it did not save us from is the two rules
+// interacting once both were present — see lintFieldAndShapeRules.
+//
+// L25 is reserved for Plan D's registration-time streaming check, which is a
+// Go-level check rather than a descriptor one; it is deliberately not
+// implemented here and its number is not reused.
+//
+// LintWith is a thin dispatcher on purpose: Task 10 owns L12-L18 and L21-L24
+// and appends its own diagnostics here without needing to touch
+// lintFieldAndShapeRules' internals. The one exception is L22: it needs
+// lintMessage's existing per-field walk of the *output* message (to find a
+// RESTRICTED read clearance) cross-referenced with the tool's
+// audit.record_response, which lives on ToolPolicy rather than on any field.
+// Rather than write a second walker over the same message just to duplicate
+// that traversal, lintMessage takes a recordResponse flag and reports L22
+// itself when walking a tool's output.
+//
+// A1-A5 are the agent rules (program plan §3.2) and live in lint_agent.go.
+// They are dispatched from here rather than from Lint because A2 needs a
+// prompts root, which a descriptor set does not carry.
 func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
@@ -96,6 +91,9 @@ func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	return out
 }
 
+// Lint is LintWith with zero options: the entry point for callers with no
+// filesystem context to supply — the protoc plugin, and the unit tests of
+// rules that need none.
 func Lint(fds []protoreflect.FileDescriptor) []Diag {
 	return LintWith(fds, Options{})
 }

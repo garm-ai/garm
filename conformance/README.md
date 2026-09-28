@@ -52,7 +52,16 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Eight cases against 32 rules. This is a reference, not an exhaustive matrix:
+Eight cases against 32 rules. The rule count is the number of distinct rule
+IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
+incremented tally — recount it after adding a rule with:
+
+```console
+$ grep -ohE 'Rule: *"[A-Z][0-9]+"' $(ls internal/compiler/*.go | grep -v _test.go) \
+    | sed -E 's/Rule: *"([A-Z0-9]+)"/\1/' | sort -u | wc -l
+```
+
+This is a reference, not an exhaustive matrix:
 the rules themselves are covered by unit tests in `internal/compiler`, which is
 the right place for a rule's edges. What belongs here is the handful a schema
 author actually trips over, written so the message and the `.proto` that
