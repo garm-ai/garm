@@ -17,6 +17,13 @@ type Refs struct {
 	Compartments []string
 	ToolSets     []string
 	Roles        int
+
+	// CompartmentRoles and ToolSetRoles map each name in Compartments and
+	// ToolSets to the sorted, deduplicated list of role names whose roles:
+	// entry named it. A consumer reporting a name the catalogue does not
+	// declare needs this to say where to look, not just what is wrong.
+	CompartmentRoles map[string][]string
+	ToolSetRoles     map[string][]string
 }
 
 // policyFile is deliberately permissive: the STS's claims.yaml carries
@@ -61,20 +68,41 @@ func ReadPolicy(path string) (*Refs, error) {
 
 	compartments := map[string]struct{}{}
 	toolSets := map[string]struct{}{}
-	for _, role := range doc.Roles {
+	compartmentRoles := map[string]map[string]struct{}{}
+	toolSetRoles := map[string]map[string]struct{}{}
+	for roleName, role := range doc.Roles {
 		for _, c := range role.Compartments {
 			compartments[c] = struct{}{}
+			addRoleRef(compartmentRoles, c, roleName)
 		}
 		for _, ts := range role.ToolSets {
 			toolSets[ts] = struct{}{}
+			addRoleRef(toolSetRoles, ts, roleName)
 		}
 	}
 
 	return &Refs{
-		Compartments: sortedKeys(compartments),
-		ToolSets:     sortedKeys(toolSets),
-		Roles:        len(doc.Roles),
+		Compartments:     sortedKeys(compartments),
+		ToolSets:         sortedKeys(toolSets),
+		Roles:            len(doc.Roles),
+		CompartmentRoles: sortedRoleRefs(compartmentRoles),
+		ToolSetRoles:     sortedRoleRefs(toolSetRoles),
 	}, nil
+}
+
+func addRoleRef(m map[string]map[string]struct{}, name, role string) {
+	if m[name] == nil {
+		m[name] = map[string]struct{}{}
+	}
+	m[name][role] = struct{}{}
+}
+
+func sortedRoleRefs(m map[string]map[string]struct{}) map[string][]string {
+	out := make(map[string][]string, len(m))
+	for name, roles := range m {
+		out[name] = sortedKeys(roles)
+	}
+	return out
 }
 
 func sortedKeys(m map[string]struct{}) []string {
