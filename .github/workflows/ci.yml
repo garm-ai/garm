@@ -87,9 +87,16 @@ jobs:
             echo "::error::nothing here imports the contract; it should be a dependency" >&2
             exit 1
           fi
-          if go list -deps github.com/garm-ai/contracts/... 2>/dev/null \
-               | grep -qx 'github.com/garm-ai/garm'; then
-            echo "::error::the contract module reaches back into this one" >&2
+          # `go mod graph` rather than `go list -deps` over the contract's own
+          # packages. That would be the more direct question, and it cannot be
+          # asked: this module imports some of the contract's packages and not
+          # others, so go list fails on the ones whose dependencies are absent
+          # from this go.sum and the check becomes vacuous — it passes because
+          # it listed nothing, not because there was no cycle. The module graph
+          # is always complete.
+          if go mod graph \
+               | grep -Eq '^github\.com/garm-ai/contracts@[^ ]+ github\.com/garm-ai/garm@'; then
+            echo "::error::the contract module requires this one; that is a cycle" >&2
             exit 1
           fi
           echo "clean: the contract is a dependency, with no cycle"
