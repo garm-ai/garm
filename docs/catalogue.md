@@ -326,6 +326,64 @@ Two lint rules run where A1–A5 run, in `garm lint` and `garm catalogue build`:
   appears is a gate people disable. It becomes an error in a later release;
   add owners now and the upgrade is a no-op.
 
+### Audience
+
+A tool declares **who it is for**, in its own contract:
+
+```proto
+option (garm.tool.v1.tool) = {
+  name: "decide_task" verb: VERB_WRITE min_clearance: CLEARANCE_PUBLIC
+  audience: [AUDIENCE_PERSON]
+};
+```
+
+`repeated Audience audience = 14` on `ToolPolicy`, with four values:
+`AUDIENCE_AGENT` (a model may be offered it), `AUDIENCE_PERSON` (a person's
+client may offer it), `AUDIENCE_RUNNER` (only the platform's runner) and
+`AUDIENCE_UNSPECIFIED`, which is what an empty list means.
+
+**Empty reads as `AGENT`.** Every tool declared before this field existed
+keeps the audience it had, and person-facing is never something a tool falls
+into by omission.
+
+A tool set already says who *holds* a tool — `payments`, `support` — and an
+earlier design tried to make sets carry this too, with a `studio` set for
+cards and a `runner` set for the platform's own calls. It does not work: a
+set answers "who has this", and the question a person's client has to answer
+is "what is this for". `get_balance` and `screen_party` are tools a person's
+claims may well reach, and neither should ever appear as a form: they are
+what an agent calls, not what a person fills in. Sets go back to grouping by
+domain; audience says what the tool is for.
+
+The rule that follows is an AND, and neither half is new — a tool is offered
+to a viewer when its audience admits that viewer's kind **and** the viewer's
+folded claims reach it:
+
+| Caller | Sees |
+|---|---|
+| a person's client | `PERSON` tools the person's claims reach |
+| a run's model | `AGENT` tools the run's folded authority reaches, minus what the manifest's allowlist drops |
+| the runner itself | `RUNNER` tools, called from the workflow and never from the loop |
+
+Two rules run beside the agent rules:
+
+- **A9** (error) — a manifest's allowlist may name only tools with
+  `AUDIENCE_AGENT`. This is one rule where the set design needed three: a
+  card endpoint, a person's decision and a runner's call are all the same
+  fact. Catalogue-scoped like A3, so the protoc plugin warns rather than
+  checking.
+- **A10** (error) — a `MODE_GRANT` tool's approval card must admit a person.
+  It is automatic, because a synthesised card carries `PERSON` whatever its
+  parent is; it is checked because a hand-written method taking the card's
+  name could declare otherwise, and a grant-mode tool whose approval card
+  nobody can fetch is a queue nobody can clear.
+
+The schema version does not move for this field. A daemon that predates it
+ignores it and offers tools as it did before, which is the same trade
+`source: SOURCE_RUNNER` took in v0.16.0: bumping would refuse every existing
+catalogue at boot over an annotation the daemon is about to learn anyway.
+`KNOWN-GAPS.md` says what that costs until it does.
+
 ### Runner-supplied request fields
 
 A request field can belong to the runner rather than to whoever is asking.

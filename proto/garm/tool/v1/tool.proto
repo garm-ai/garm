@@ -45,6 +45,38 @@ enum PrincipalKind {
   PRINCIPAL_KIND_SERVICE     = 3;  // a system calling on its own behalf
 }
 
+// Audience says WHO a tool is for: a model, a person, or the platform's
+// runner. It is the tool's own answer to a question a tool SET cannot
+// answer.
+//
+// A set says who HOLDS a tool — `payments`, `support` — and that is a
+// different question from what the tool is for. `get_balance` and
+// `screen_party` are tools a person's claims may well reach, and neither
+// should ever appear as a form in a person's client: they are what an agent
+// calls, not what a person fills in. So the tool declares it, in its own
+// contract, where it is reviewed with everything else about the tool.
+//
+// The rule is an AND, and neither half is new: a tool is offered to a viewer
+// when its audience admits that viewer's kind AND the viewer's folded claims
+// reach it (the visibility step, unchanged). ListTools takes the audience it
+// is asking for and defaults to AGENT, which is what makes a model's list
+// unchanged by this field existing.
+//
+//   a person's client  sees PERSON tools the person's claims reach
+//   a run's model      sees AGENT tools the run's folded authority reaches,
+//                      minus what the manifest's allowlist drops
+//   the runner itself  sees RUNNER tools, called from the workflow and never
+//                      from the loop
+//
+// Who may INVOKE an agent, as against see it, is still the authorization
+// graph's business and is checked at the exchange, after visibility.
+enum Audience {
+  AUDIENCE_UNSPECIFIED = 0;   // read as AGENT: person-facing is always an explicit choice
+  AUDIENCE_AGENT       = 1;   // a model may be offered it; a person's client never lists it
+  AUDIENCE_PERSON      = 2;   // a person's client may offer it; a model only if AGENT is also declared
+  AUDIENCE_RUNNER      = 3;   // only the platform's runner: create_task, and later the artefact stamps
+}
+
 enum Reversibility {
   REVERSIBILITY_UNSPECIFIED = 0;  // fails closed to NONE
   REVERSIBILITY_NONE        = 1;
@@ -232,6 +264,18 @@ message ToolPolicy {
   Authorization authorization = 11;
   repeated string sets = 12;
   Audit         audit         = 13;
+
+  // Who this tool is for. EMPTY MEANS [AUDIENCE_AGENT] — see Audience —
+  // so every tool declared before this field existed keeps exactly the
+  // audience it had, and person-facing is never something a tool falls
+  // into by omission.
+  //
+  // Repeated because the two real audiences overlap: an agent's Invoke is
+  // [PERSON, AGENT] (a person starts a run; another agent may delegate one),
+  // while initiate_payment is [AGENT] and its approval card is [PERSON].
+  // RUNNER does not overlap with either: a tool the runner fills in is not
+  // one a model or a person may call at all.
+  repeated Audience audience = 14;
 }
 
 // ---------------------------------------------------------------- declarations

@@ -1,0 +1,50 @@
+syntax = "proto3";
+package conformance.a10;
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/a10;c";
+
+message InitiatePaymentRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional int64 amount_minor_units = 1;
+}
+message InitiatePaymentResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+message GetBalanceRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional string account = 1;
+}
+
+// initiate_payment is MODE_GRANT, so every call of it opens a task somebody
+// has to decide. Its approval card is normally synthesised and carries
+// AUDIENCE_PERSON whatever the parent's audience is — a card exists to be
+// read by a person. Here the author hand-wrote the card method and gave it
+// the parent's audience instead, so no person could ever fetch it and the
+// queue would fill with approvals nobody can open.
+service Payments {
+  option (garm.meta.v1.owner) = { team: "payments-platform" contact: "#payments-oncall" };
+  rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Initiate a payment" description: "Move money."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL audience: [AUDIENCE_AGENT]
+      approval: { mode: MODE_GRANT approver_min_clearance: CLEARANCE_RESTRICTED
+                  max_grant_age_seconds: 900 material_fields: ["amount_minor_units"] }
+    };
+  }
+  rpc InitiatePaymentApprovalCard(garm.card.v1.TaskRef) returns (garm.card.v1.Card) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment_approval_card" title: "Approval card" description: "The open approval."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL audience: [AUDIENCE_AGENT]
+      approval: { mode: MODE_NONE }
+    };
+  }
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceRequest) {
+    option (garm.tool.v1.tool) = {
+      name: "get_balance" title: "Get a balance" description: "Read a balance."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL audience: [AUDIENCE_AGENT]
+    };
+  }
+}

@@ -197,6 +197,83 @@ func (PrincipalKind) EnumDescriptor() ([]byte, []int) {
 	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{2}
 }
 
+// Audience says WHO a tool is for: a model, a person, or the platform's
+// runner. It is the tool's own answer to a question a tool SET cannot
+// answer.
+//
+// A set says who HOLDS a tool — `payments`, `support` — and that is a
+// different question from what the tool is for. `get_balance` and
+// `screen_party` are tools a person's claims may well reach, and neither
+// should ever appear as a form in a person's client: they are what an agent
+// calls, not what a person fills in. So the tool declares it, in its own
+// contract, where it is reviewed with everything else about the tool.
+//
+// The rule is an AND, and neither half is new: a tool is offered to a viewer
+// when its audience admits that viewer's kind AND the viewer's folded claims
+// reach it (the visibility step, unchanged). ListTools takes the audience it
+// is asking for and defaults to AGENT, which is what makes a model's list
+// unchanged by this field existing.
+//
+//	a person's client  sees PERSON tools the person's claims reach
+//	a run's model      sees AGENT tools the run's folded authority reaches,
+//	                   minus what the manifest's allowlist drops
+//	the runner itself  sees RUNNER tools, called from the workflow and never
+//	                   from the loop
+//
+// Who may INVOKE an agent, as against see it, is still the authorization
+// graph's business and is checked at the exchange, after visibility.
+type Audience int32
+
+const (
+	Audience_AUDIENCE_UNSPECIFIED Audience = 0 // read as AGENT: person-facing is always an explicit choice
+	Audience_AUDIENCE_AGENT       Audience = 1 // a model may be offered it; a person's client never lists it
+	Audience_AUDIENCE_PERSON      Audience = 2 // a person's client may offer it; a model only if AGENT is also declared
+	Audience_AUDIENCE_RUNNER      Audience = 3 // only the platform's runner: create_task, and later the artefact stamps
+)
+
+// Enum value maps for Audience.
+var (
+	Audience_name = map[int32]string{
+		0: "AUDIENCE_UNSPECIFIED",
+		1: "AUDIENCE_AGENT",
+		2: "AUDIENCE_PERSON",
+		3: "AUDIENCE_RUNNER",
+	}
+	Audience_value = map[string]int32{
+		"AUDIENCE_UNSPECIFIED": 0,
+		"AUDIENCE_AGENT":       1,
+		"AUDIENCE_PERSON":      2,
+		"AUDIENCE_RUNNER":      3,
+	}
+)
+
+func (x Audience) Enum() *Audience {
+	p := new(Audience)
+	*p = x
+	return p
+}
+
+func (x Audience) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Audience) Descriptor() protoreflect.EnumDescriptor {
+	return file_garm_tool_v1_tool_proto_enumTypes[3].Descriptor()
+}
+
+func (Audience) Type() protoreflect.EnumType {
+	return &file_garm_tool_v1_tool_proto_enumTypes[3]
+}
+
+func (x Audience) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Audience.Descriptor instead.
+func (Audience) EnumDescriptor() ([]byte, []int) {
+	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{3}
+}
+
 type Reversibility int32
 
 const (
@@ -233,11 +310,11 @@ func (x Reversibility) String() string {
 }
 
 func (Reversibility) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[3].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[4].Descriptor()
 }
 
 func (Reversibility) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[3]
+	return &file_garm_tool_v1_tool_proto_enumTypes[4]
 }
 
 func (x Reversibility) Number() protoreflect.EnumNumber {
@@ -246,7 +323,7 @@ func (x Reversibility) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Reversibility.Descriptor instead.
 func (Reversibility) EnumDescriptor() ([]byte, []int) {
-	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{3}
+	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{4}
 }
 
 type Grain int32
@@ -285,11 +362,11 @@ func (x Grain) String() string {
 }
 
 func (Grain) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[4].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[5].Descriptor()
 }
 
 func (Grain) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[4]
+	return &file_garm_tool_v1_tool_proto_enumTypes[5]
 }
 
 func (x Grain) Number() protoreflect.EnumNumber {
@@ -298,7 +375,7 @@ func (x Grain) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Grain.Descriptor instead.
 func (Grain) EnumDescriptor() ([]byte, []int) {
-	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{4}
+	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{5}
 }
 
 // Source says WHO supplies a request field's value.
@@ -359,11 +436,11 @@ func (x FieldPolicy_Source) String() string {
 }
 
 func (FieldPolicy_Source) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[5].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[6].Descriptor()
 }
 
 func (FieldPolicy_Source) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[5]
+	return &file_garm_tool_v1_tool_proto_enumTypes[6]
 }
 
 func (x FieldPolicy_Source) Number() protoreflect.EnumNumber {
@@ -411,11 +488,11 @@ func (x Approval_Mode) String() string {
 }
 
 func (Approval_Mode) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[6].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[7].Descriptor()
 }
 
 func (Approval_Mode) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[6]
+	return &file_garm_tool_v1_tool_proto_enumTypes[7]
 }
 
 func (x Approval_Mode) Number() protoreflect.EnumNumber {
@@ -460,11 +537,11 @@ func (x Audit_Level) String() string {
 }
 
 func (Audit_Level) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[7].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[8].Descriptor()
 }
 
 func (Audit_Level) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[7]
+	return &file_garm_tool_v1_tool_proto_enumTypes[8]
 }
 
 func (x Audit_Level) Number() protoreflect.EnumNumber {
@@ -1887,6 +1964,17 @@ type ToolPolicy struct {
 	Authorization *Authorization         `protobuf:"bytes,11,opt,name=authorization,proto3" json:"authorization,omitempty"`
 	Sets          []string               `protobuf:"bytes,12,rep,name=sets,proto3" json:"sets,omitempty"`
 	Audit         *Audit                 `protobuf:"bytes,13,opt,name=audit,proto3" json:"audit,omitempty"`
+	// Who this tool is for. EMPTY MEANS [AUDIENCE_AGENT] — see Audience —
+	// so every tool declared before this field existed keeps exactly the
+	// audience it had, and person-facing is never something a tool falls
+	// into by omission.
+	//
+	// Repeated because the two real audiences overlap: an agent's Invoke is
+	// [PERSON, AGENT] (a person starts a run; another agent may delegate one),
+	// while initiate_payment is [AGENT] and its approval card is [PERSON].
+	// RUNNER does not overlap with either: a tool the runner fills in is not
+	// one a model or a person may call at all.
+	Audience      []Audience `protobuf:"varint,14,rep,packed,name=audience,proto3,enum=garm.tool.v1.Audience" json:"audience,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2008,6 +2096,13 @@ func (x *ToolPolicy) GetSets() []string {
 func (x *ToolPolicy) GetAudit() *Audit {
 	if x != nil {
 		return x.Audit
+	}
+	return nil
+}
+
+func (x *ToolPolicy) GetAudience() []Audience {
+	if x != nil {
+		return x.Audience
 	}
 	return nil
 }
@@ -2284,7 +2379,7 @@ const file_garm_tool_v1_tool_proto_rawDesc = "" +
 	"\x05Level\x12\x15\n" +
 	"\x11LEVEL_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fLEVEL_LEDGER\x10\x01\x12\x0f\n" +
-	"\vLEVEL_AUDIT\x10\x02\"\x97\x04\n" +
+	"\vLEVEL_AUDIT\x10\x02\"\xcb\x04\n" +
 	"\n" +
 	"ToolPolicy\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
@@ -2300,7 +2395,8 @@ const file_garm_tool_v1_tool_proto_rawDesc = "" +
 	" \x01(\v2\x16.garm.tool.v1.GuidanceR\bguidance\x12A\n" +
 	"\rauthorization\x18\v \x01(\v2\x1b.garm.tool.v1.AuthorizationR\rauthorization\x12\x12\n" +
 	"\x04sets\x18\f \x03(\tR\x04sets\x12)\n" +
-	"\x05audit\x18\r \x01(\v2\x13.garm.tool.v1.AuditR\x05audit\"<\n" +
+	"\x05audit\x18\r \x01(\v2\x13.garm.tool.v1.AuditR\x05audit\x122\n" +
+	"\baudience\x18\x0e \x03(\x0e2\x16.garm.tool.v1.AudienceR\baudience\"<\n" +
 	"\x04Decl\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\"9\n" +
@@ -2323,7 +2419,12 @@ const file_garm_tool_v1_tool_proto_rawDesc = "" +
 	"\x1aPRINCIPAL_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13PRINCIPAL_KIND_USER\x10\x01\x12\x18\n" +
 	"\x14PRINCIPAL_KIND_AGENT\x10\x02\x12\x1a\n" +
-	"\x16PRINCIPAL_KIND_SERVICE\x10\x03*}\n" +
+	"\x16PRINCIPAL_KIND_SERVICE\x10\x03*b\n" +
+	"\bAudience\x12\x18\n" +
+	"\x14AUDIENCE_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eAUDIENCE_AGENT\x10\x01\x12\x13\n" +
+	"\x0fAUDIENCE_PERSON\x10\x02\x12\x13\n" +
+	"\x0fAUDIENCE_RUNNER\x10\x03*}\n" +
 	"\rReversibility\x12\x1d\n" +
 	"\x19REVERSIBILITY_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12REVERSIBILITY_NONE\x10\x01\x12\x1d\n" +
@@ -2353,93 +2454,95 @@ func file_garm_tool_v1_tool_proto_rawDescGZIP() []byte {
 	return file_garm_tool_v1_tool_proto_rawDescData
 }
 
-var file_garm_tool_v1_tool_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_garm_tool_v1_tool_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
 var file_garm_tool_v1_tool_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_garm_tool_v1_tool_proto_goTypes = []any{
 	(Clearance)(0),                      // 0: garm.tool.v1.Clearance
 	(Verb)(0),                           // 1: garm.tool.v1.Verb
 	(PrincipalKind)(0),                  // 2: garm.tool.v1.PrincipalKind
-	(Reversibility)(0),                  // 3: garm.tool.v1.Reversibility
-	(Grain)(0),                          // 4: garm.tool.v1.Grain
-	(FieldPolicy_Source)(0),             // 5: garm.tool.v1.FieldPolicy.Source
-	(Approval_Mode)(0),                  // 6: garm.tool.v1.Approval.Mode
-	(Audit_Level)(0),                    // 7: garm.tool.v1.Audit.Level
-	(*Omit)(nil),                        // 8: garm.tool.v1.Omit
-	(*Mask)(nil),                        // 9: garm.tool.v1.Mask
-	(*Hash)(nil),                        // 10: garm.tool.v1.Hash
-	(*EmailDomain)(nil),                 // 11: garm.tool.v1.EmailDomain
-	(*KeepLast)(nil),                    // 12: garm.tool.v1.KeepLast
-	(*Truncate)(nil),                    // 13: garm.tool.v1.Truncate
-	(*CardBinLast4)(nil),                // 14: garm.tool.v1.CardBinLast4
-	(*IpPrefix)(nil),                    // 15: garm.tool.v1.IpPrefix
-	(*UrlOrigin)(nil),                   // 16: garm.tool.v1.UrlOrigin
-	(*DateGrain)(nil),                   // 17: garm.tool.v1.DateGrain
-	(*Custom)(nil),                      // 18: garm.tool.v1.Custom
-	(*Redaction)(nil),                   // 19: garm.tool.v1.Redaction
-	(*FieldPolicy)(nil),                 // 20: garm.tool.v1.FieldPolicy
-	(*Effects)(nil),                     // 21: garm.tool.v1.Effects
-	(*Approval)(nil),                    // 22: garm.tool.v1.Approval
-	(*Example)(nil),                     // 23: garm.tool.v1.Example
-	(*Guidance)(nil),                    // 24: garm.tool.v1.Guidance
-	(*ListFilter)(nil),                  // 25: garm.tool.v1.ListFilter
-	(*Fga)(nil),                         // 26: garm.tool.v1.Fga
-	(*Authorization)(nil),               // 27: garm.tool.v1.Authorization
-	(*Audit)(nil),                       // 28: garm.tool.v1.Audit
-	(*ToolPolicy)(nil),                  // 29: garm.tool.v1.ToolPolicy
-	(*Decl)(nil),                        // 30: garm.tool.v1.Decl
-	(*DeclSet)(nil),                     // 31: garm.tool.v1.DeclSet
-	(*descriptorpb.FieldOptions)(nil),   // 32: google.protobuf.FieldOptions
-	(*descriptorpb.MethodOptions)(nil),  // 33: google.protobuf.MethodOptions
-	(*descriptorpb.MessageOptions)(nil), // 34: google.protobuf.MessageOptions
-	(*descriptorpb.FileOptions)(nil),    // 35: google.protobuf.FileOptions
+	(Audience)(0),                       // 3: garm.tool.v1.Audience
+	(Reversibility)(0),                  // 4: garm.tool.v1.Reversibility
+	(Grain)(0),                          // 5: garm.tool.v1.Grain
+	(FieldPolicy_Source)(0),             // 6: garm.tool.v1.FieldPolicy.Source
+	(Approval_Mode)(0),                  // 7: garm.tool.v1.Approval.Mode
+	(Audit_Level)(0),                    // 8: garm.tool.v1.Audit.Level
+	(*Omit)(nil),                        // 9: garm.tool.v1.Omit
+	(*Mask)(nil),                        // 10: garm.tool.v1.Mask
+	(*Hash)(nil),                        // 11: garm.tool.v1.Hash
+	(*EmailDomain)(nil),                 // 12: garm.tool.v1.EmailDomain
+	(*KeepLast)(nil),                    // 13: garm.tool.v1.KeepLast
+	(*Truncate)(nil),                    // 14: garm.tool.v1.Truncate
+	(*CardBinLast4)(nil),                // 15: garm.tool.v1.CardBinLast4
+	(*IpPrefix)(nil),                    // 16: garm.tool.v1.IpPrefix
+	(*UrlOrigin)(nil),                   // 17: garm.tool.v1.UrlOrigin
+	(*DateGrain)(nil),                   // 18: garm.tool.v1.DateGrain
+	(*Custom)(nil),                      // 19: garm.tool.v1.Custom
+	(*Redaction)(nil),                   // 20: garm.tool.v1.Redaction
+	(*FieldPolicy)(nil),                 // 21: garm.tool.v1.FieldPolicy
+	(*Effects)(nil),                     // 22: garm.tool.v1.Effects
+	(*Approval)(nil),                    // 23: garm.tool.v1.Approval
+	(*Example)(nil),                     // 24: garm.tool.v1.Example
+	(*Guidance)(nil),                    // 25: garm.tool.v1.Guidance
+	(*ListFilter)(nil),                  // 26: garm.tool.v1.ListFilter
+	(*Fga)(nil),                         // 27: garm.tool.v1.Fga
+	(*Authorization)(nil),               // 28: garm.tool.v1.Authorization
+	(*Audit)(nil),                       // 29: garm.tool.v1.Audit
+	(*ToolPolicy)(nil),                  // 30: garm.tool.v1.ToolPolicy
+	(*Decl)(nil),                        // 31: garm.tool.v1.Decl
+	(*DeclSet)(nil),                     // 32: garm.tool.v1.DeclSet
+	(*descriptorpb.FieldOptions)(nil),   // 33: google.protobuf.FieldOptions
+	(*descriptorpb.MethodOptions)(nil),  // 34: google.protobuf.MethodOptions
+	(*descriptorpb.MessageOptions)(nil), // 35: google.protobuf.MessageOptions
+	(*descriptorpb.FileOptions)(nil),    // 36: google.protobuf.FileOptions
 }
 var file_garm_tool_v1_tool_proto_depIdxs = []int32{
-	4,  // 0: garm.tool.v1.DateGrain.grain:type_name -> garm.tool.v1.Grain
-	8,  // 1: garm.tool.v1.Redaction.omit:type_name -> garm.tool.v1.Omit
-	9,  // 2: garm.tool.v1.Redaction.mask:type_name -> garm.tool.v1.Mask
-	10, // 3: garm.tool.v1.Redaction.hash:type_name -> garm.tool.v1.Hash
-	11, // 4: garm.tool.v1.Redaction.email_domain:type_name -> garm.tool.v1.EmailDomain
-	12, // 5: garm.tool.v1.Redaction.keep_last:type_name -> garm.tool.v1.KeepLast
-	13, // 6: garm.tool.v1.Redaction.truncate:type_name -> garm.tool.v1.Truncate
-	14, // 7: garm.tool.v1.Redaction.card_bin_last4:type_name -> garm.tool.v1.CardBinLast4
-	15, // 8: garm.tool.v1.Redaction.ip_prefix:type_name -> garm.tool.v1.IpPrefix
-	16, // 9: garm.tool.v1.Redaction.url_origin:type_name -> garm.tool.v1.UrlOrigin
-	17, // 10: garm.tool.v1.Redaction.date_grain:type_name -> garm.tool.v1.DateGrain
-	18, // 11: garm.tool.v1.Redaction.custom:type_name -> garm.tool.v1.Custom
+	5,  // 0: garm.tool.v1.DateGrain.grain:type_name -> garm.tool.v1.Grain
+	9,  // 1: garm.tool.v1.Redaction.omit:type_name -> garm.tool.v1.Omit
+	10, // 2: garm.tool.v1.Redaction.mask:type_name -> garm.tool.v1.Mask
+	11, // 3: garm.tool.v1.Redaction.hash:type_name -> garm.tool.v1.Hash
+	12, // 4: garm.tool.v1.Redaction.email_domain:type_name -> garm.tool.v1.EmailDomain
+	13, // 5: garm.tool.v1.Redaction.keep_last:type_name -> garm.tool.v1.KeepLast
+	14, // 6: garm.tool.v1.Redaction.truncate:type_name -> garm.tool.v1.Truncate
+	15, // 7: garm.tool.v1.Redaction.card_bin_last4:type_name -> garm.tool.v1.CardBinLast4
+	16, // 8: garm.tool.v1.Redaction.ip_prefix:type_name -> garm.tool.v1.IpPrefix
+	17, // 9: garm.tool.v1.Redaction.url_origin:type_name -> garm.tool.v1.UrlOrigin
+	18, // 10: garm.tool.v1.Redaction.date_grain:type_name -> garm.tool.v1.DateGrain
+	19, // 11: garm.tool.v1.Redaction.custom:type_name -> garm.tool.v1.Custom
 	0,  // 12: garm.tool.v1.FieldPolicy.read:type_name -> garm.tool.v1.Clearance
 	0,  // 13: garm.tool.v1.FieldPolicy.write:type_name -> garm.tool.v1.Clearance
-	19, // 14: garm.tool.v1.FieldPolicy.on_deny:type_name -> garm.tool.v1.Redaction
-	5,  // 15: garm.tool.v1.FieldPolicy.source:type_name -> garm.tool.v1.FieldPolicy.Source
-	3,  // 16: garm.tool.v1.Effects.reversibility:type_name -> garm.tool.v1.Reversibility
-	6,  // 17: garm.tool.v1.Approval.mode:type_name -> garm.tool.v1.Approval.Mode
+	20, // 14: garm.tool.v1.FieldPolicy.on_deny:type_name -> garm.tool.v1.Redaction
+	6,  // 15: garm.tool.v1.FieldPolicy.source:type_name -> garm.tool.v1.FieldPolicy.Source
+	4,  // 16: garm.tool.v1.Effects.reversibility:type_name -> garm.tool.v1.Reversibility
+	7,  // 17: garm.tool.v1.Approval.mode:type_name -> garm.tool.v1.Approval.Mode
 	0,  // 18: garm.tool.v1.Approval.approver_min_clearance:type_name -> garm.tool.v1.Clearance
-	23, // 19: garm.tool.v1.Guidance.examples:type_name -> garm.tool.v1.Example
-	25, // 20: garm.tool.v1.Fga.filter_response:type_name -> garm.tool.v1.ListFilter
-	26, // 21: garm.tool.v1.Authorization.fga:type_name -> garm.tool.v1.Fga
-	7,  // 22: garm.tool.v1.Audit.level:type_name -> garm.tool.v1.Audit.Level
+	24, // 19: garm.tool.v1.Guidance.examples:type_name -> garm.tool.v1.Example
+	26, // 20: garm.tool.v1.Fga.filter_response:type_name -> garm.tool.v1.ListFilter
+	27, // 21: garm.tool.v1.Authorization.fga:type_name -> garm.tool.v1.Fga
+	8,  // 22: garm.tool.v1.Audit.level:type_name -> garm.tool.v1.Audit.Level
 	1,  // 23: garm.tool.v1.ToolPolicy.verb:type_name -> garm.tool.v1.Verb
 	0,  // 24: garm.tool.v1.ToolPolicy.min_clearance:type_name -> garm.tool.v1.Clearance
-	21, // 25: garm.tool.v1.ToolPolicy.effects:type_name -> garm.tool.v1.Effects
-	22, // 26: garm.tool.v1.ToolPolicy.approval:type_name -> garm.tool.v1.Approval
-	24, // 27: garm.tool.v1.ToolPolicy.guidance:type_name -> garm.tool.v1.Guidance
-	27, // 28: garm.tool.v1.ToolPolicy.authorization:type_name -> garm.tool.v1.Authorization
-	28, // 29: garm.tool.v1.ToolPolicy.audit:type_name -> garm.tool.v1.Audit
-	30, // 30: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.v1.Decl
-	32, // 31: garm.tool.v1.field_policy:extendee -> google.protobuf.FieldOptions
-	33, // 32: garm.tool.v1.tool:extendee -> google.protobuf.MethodOptions
-	34, // 33: garm.tool.v1.default_field_policy:extendee -> google.protobuf.MessageOptions
-	35, // 34: garm.tool.v1.compartments:extendee -> google.protobuf.FileOptions
-	35, // 35: garm.tool.v1.tool_sets:extendee -> google.protobuf.FileOptions
-	20, // 36: garm.tool.v1.field_policy:type_name -> garm.tool.v1.FieldPolicy
-	29, // 37: garm.tool.v1.tool:type_name -> garm.tool.v1.ToolPolicy
-	20, // 38: garm.tool.v1.default_field_policy:type_name -> garm.tool.v1.FieldPolicy
-	31, // 39: garm.tool.v1.compartments:type_name -> garm.tool.v1.DeclSet
-	31, // 40: garm.tool.v1.tool_sets:type_name -> garm.tool.v1.DeclSet
-	41, // [41:41] is the sub-list for method output_type
-	41, // [41:41] is the sub-list for method input_type
-	36, // [36:41] is the sub-list for extension type_name
-	31, // [31:36] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	22, // 25: garm.tool.v1.ToolPolicy.effects:type_name -> garm.tool.v1.Effects
+	23, // 26: garm.tool.v1.ToolPolicy.approval:type_name -> garm.tool.v1.Approval
+	25, // 27: garm.tool.v1.ToolPolicy.guidance:type_name -> garm.tool.v1.Guidance
+	28, // 28: garm.tool.v1.ToolPolicy.authorization:type_name -> garm.tool.v1.Authorization
+	29, // 29: garm.tool.v1.ToolPolicy.audit:type_name -> garm.tool.v1.Audit
+	3,  // 30: garm.tool.v1.ToolPolicy.audience:type_name -> garm.tool.v1.Audience
+	31, // 31: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.v1.Decl
+	33, // 32: garm.tool.v1.field_policy:extendee -> google.protobuf.FieldOptions
+	34, // 33: garm.tool.v1.tool:extendee -> google.protobuf.MethodOptions
+	35, // 34: garm.tool.v1.default_field_policy:extendee -> google.protobuf.MessageOptions
+	36, // 35: garm.tool.v1.compartments:extendee -> google.protobuf.FileOptions
+	36, // 36: garm.tool.v1.tool_sets:extendee -> google.protobuf.FileOptions
+	21, // 37: garm.tool.v1.field_policy:type_name -> garm.tool.v1.FieldPolicy
+	30, // 38: garm.tool.v1.tool:type_name -> garm.tool.v1.ToolPolicy
+	21, // 39: garm.tool.v1.default_field_policy:type_name -> garm.tool.v1.FieldPolicy
+	32, // 40: garm.tool.v1.compartments:type_name -> garm.tool.v1.DeclSet
+	32, // 41: garm.tool.v1.tool_sets:type_name -> garm.tool.v1.DeclSet
+	42, // [42:42] is the sub-list for method output_type
+	42, // [42:42] is the sub-list for method input_type
+	37, // [37:42] is the sub-list for extension type_name
+	32, // [32:37] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_garm_tool_v1_tool_proto_init() }
@@ -2473,7 +2576,7 @@ func file_garm_tool_v1_tool_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_garm_tool_v1_tool_proto_rawDesc), len(file_garm_tool_v1_tool_proto_rawDesc)),
-			NumEnums:      8,
+			NumEnums:      9,
 			NumMessages:   24,
 			NumExtensions: 5,
 			NumServices:   0,

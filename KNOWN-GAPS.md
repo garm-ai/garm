@@ -54,6 +54,18 @@ services, so only the fixture's `TestService` case survives here. The
   the runner's overwrite is the only enforcement. The annotation schema
   stayed at v1 so that a v0.2.0 daemon still mounts a catalogue carrying the
   field; `docs/catalogue.md` says what that costs.
+- **`audience` is declared here and enforced nowhere yet.**
+  `ToolPolicy.audience` (v0.17.0) says whether a tool is for a model, a
+  person or the runner, and lint holds a manifest to it (A9) and a grant-mode
+  tool's approval card to it (A10). What garmd is meant to do — filter
+  `ListTools` by the audience the caller asks for, defaulting to `AGENT` — is
+  **not built**, and neither is a person's client that asks for `PERSON`.
+  Until both land, a `PERSON` tool is still offered to a model by a daemon
+  that has not learned the field, and the allowlist (A9, plus the runner's
+  own filter) is what actually keeps a card out of a model's schema. The
+  annotation schema stayed at v1 so that an older daemon still mounts a
+  catalogue carrying the field, on the same reasoning as `source` above.
+
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

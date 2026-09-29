@@ -65,7 +65,8 @@ type Options struct {
 }
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
-// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, C1 and O1)
+// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, A9, A10, C1
+// and O1)
 // over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
@@ -101,7 +102,12 @@ type Options struct {
 // studio cards rules (design §3.4, §3.5). Both are per-service or per-method
 // and need nothing from the rest of the tree, so they run everywhere,
 // PartialSet included.
-
+//
+// A9 and A10 (audience, lint_audience.go) are the cards-and-tasks rules the
+// design numbers A9′ and A10′. A9 resolves a manifest's allowlist against
+// the catalogue, so it runs beside A3 and warns off with it under
+// PartialSet; A10 needs only the tool's own service, so it runs in the
+// per-tool loop with everything else.
 func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
@@ -192,6 +198,7 @@ func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor) []Diag {
 			tl.Policy.GetAudit().GetRecordResponse())...)
 		out = append(out, lintExamples(tl, path)...)
 		out = append(out, lintVisibility(tl, reg, path)...)
+		out = append(out, lintApprovalCardAudience(tl, approvalCardMethodName)...)
 	}
 	return out
 }

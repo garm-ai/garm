@@ -47,11 +47,13 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 			// looking is not a rule. Same treatment A2 gives a missing
 			// prompts root.
 			out = append(out, Diag{Rule: "A3", Path: string(a.Service.FullName()), Warn: true,
-				Msg: "the allowlist and its guards are not checked here: this run sees " +
-					"one directory, not the catalogue. `garm lint` and `garm catalogue " +
-					"build` resolve them against the whole tree and do check them"})
+				Msg: "the allowlist, its guards and the audience of every tool it names " +
+					"are not checked here: this run sees one directory, not the " +
+					"catalogue. `garm lint` and `garm catalogue build` resolve them " +
+					"against the whole tree and do check them"})
 		} else {
 			out = append(out, lintAgentTools(a, tools)...)
+			out = append(out, lintManifestToolAudience(a, tools)...)
 			out = append(out, lintAgentGuards(a, tools, envs)...)
 		}
 		out = append(out, lintAgentDoorParity(a)...)
