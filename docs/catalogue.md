@@ -380,6 +380,47 @@ service computes it from the tools its author declared. Hashing the cards
 would move every existing service's digest without a wire shape having
 changed.
 
+**What the defaults produce.** `protoc-gen-garm-go` emits, beside the handler
+interface, one default per card and a `<Service>Cards` interface documenting
+what an override looks like:
+
+| Card | Built from | Labels |
+|---|---|---|
+| input | the request descriptor — one control per field the caller may set, kind by type, `required`/`max_len`/`min`/`max` from protovalidate, caption from the leading comment. Fields the runner supplies are absent | each element at its field's **write** policy, joined with the endpoint's |
+| result | `ResultCard(ctx, ref, resp)` — a fact per scalar of the response, in declaration order, `Fact.field` set | each fact at its field's **read** policy, joined with the endpoint's |
+| approval | `Approval.material_fields`, valued from `TaskRef.material`, plus the owner and the declared `task_card` template | each fact at its field's read policy **joined with** the tool's `approver_min_clearance` and `approver_compartments` |
+
+The card construction is not generated code: it lives in `contracts/cards` as
+runtime functions over the method descriptor, and the generated default is a
+three-line wrapper around one. Generating the construction would put hundreds
+of lines of literal-building into every tool module and make a change to the
+layout a regeneration of every repository that has one.
+
+**The result card is the one that cannot be complete.** A card about an answer
+needs the answer, and the wrapper has no way to reach a response the handler
+returned to somebody else. The runtime is meant to seal each call's response
+under its call id and hand it back; until that store exists the default
+answers `result_unavailable`, and a tool that keeps its own record overrides
+`ResultCard`, reads its own row and calls the generated
+`<Method>ResultCardFrom` with it.
+
+**Overriding.** Implement the method on your handler:
+
+```go
+func (p payments) InitiatePaymentApprovalCard(
+    ctx context.Context, ref *cardv1.TaskRef,
+) (*cardv1.Card, error) {
+    // the material from the ref, your own data from your own store,
+    // the invocation from ctx
+}
+```
+
+`Serve<Service>` asserts each card's own signature, so overriding one leaves
+every other card generated. An override **must label what it adds**: an
+unlabelled element takes the endpoint's own policy, and an element labelled
+*below* the endpoint fails the whole card rather than being served.
+`cards.Join` is how to label something at the endpoint's floor or higher.
+
 One lint rule guards the names, because they are added *after* lint runs:
 
 - **C9** (error) — a hand-written method may not take a synthesised card's

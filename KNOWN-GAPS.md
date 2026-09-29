@@ -66,6 +66,26 @@ services, so only the fixture's `TestService` case survives here. The
   annotation schema stayed at v1 so that an older daemon still mounts a
   catalogue carrying the field, on the same reasoning as `source` above.
 
+- **The generated result card has no answer to show.** A card about an answer
+  needs the answer, and the generated wrapper has no way to reach a response
+  the handler returned to somebody else. The runtime is meant to seal each
+  call's response under its call id and hand it back; until that store exists
+  the default answers `result_unavailable` and only a tool that keeps its own
+  record has a result card — it overrides `ResultCard` and calls the generated
+  `<Method>ResultCardFrom` with its own row.
+
+- **The generated cards leave repeated fields out.** An input card has no
+  control for a list and a result card has no layout for one, and the wrong
+  layout is worse than an override. The design's "a FactSet per repeated
+  message field" is not built; a result card's facts are the scalar leaves
+  reachable without crossing a repeated field, to a depth of two. An author
+  with a list overrides.
+
+- **The card defaults are emitted for `emit=toolsdk` only.** That is what a
+  tool service registers against. `emit=server` is garm's own wiring for the
+  daemon's side and mounts from the catalogue, which already carries the card
+  methods.
+
 - **`contracts/grants` verifies a grant; it does not spend one.** The shared
   half of grant verification — parse, verify the signature against a supplied
   key set, read the claims (including `task`), compare a material map or a

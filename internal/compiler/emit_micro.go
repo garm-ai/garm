@@ -100,11 +100,27 @@ func EmitMicro(
 		resolved[svc] = rs
 	}
 
+	// Cards are resolved before anything is written, so a service with none
+	// (every method returns a card, say) never emits the lookup helper.
+	svcCards := map[string][]serviceCard{}
+	anyCards := false
+	for _, svc := range order {
+		svcCards[svc] = resolveServiceCards(resolved[svc])
+		anyCards = anyCards || len(svcCards[svc]) > 0
+	}
+
 	for _, svc := range order {
 		emitMicroHandler(g, svc, resolved[svc])
+		emitCardsInterface(g, svc, svcCards[svc])
+	}
+	if anyCards {
+		emitCardMethodLookup(g)
 	}
 	for _, svc := range order {
-		emitMicroServe(g, svc, resolved[svc])
+		emitCardDefaults(g, svc, svcCards[svc])
+	}
+	for _, svc := range order {
+		emitMicroServe(g, svc, resolved[svc], svcCards[svc])
 	}
 	if opts.ConnectAdapter {
 		for _, svc := range order {
@@ -210,8 +226,15 @@ func emitMicroHandler(g *protogen.GeneratedFile, svc string, tools []microTool) 
 //
 // ServeX takes a toolbind.Registrar, not a concrete runtime: that is the
 // dependency inversion this whole file exists for (package doc comment).
-func emitMicroServe(g *protogen.GeneratedFile, svc string, tools []microTool) {
-	g.P("// Serve", svc, " registers one micro endpoint per tool ", svc, " declares.")
+func emitMicroServe(g *protogen.GeneratedFile, svc string, tools []microTool, cs []serviceCard) {
+	g.P("// Serve", svc, " registers one micro endpoint per tool ", svc, " declares,")
+	g.P("// and one per card those tools serve.")
+	g.P("//")
+	g.P("// A card is registered exactly like a tool, because it IS one: the")
+	g.P("// daemon routes to it through the same ten steps, at the parent tool's")
+	g.P("// clearance, into the same ledger. Where h implements a card's own")
+	g.P("// signature that override is registered; otherwise the generated")
+	g.P("// default is. See ", svc, "Cards.")
 	g.P("func Serve", svc, "(r ", g.QualifiedGoIdent(toolbindPkg.Ident("Registrar")), ", h ", svc, "Handler) error {")
 	for _, t := range tools {
 		fqn, subject, method, service := toolRefLiteral(t.Tool)
@@ -253,6 +276,7 @@ func emitMicroServe(g *protogen.GeneratedFile, svc string, tools []microTool) {
 		g.P("return err")
 		g.P("}")
 	}
+	emitCardEndpoints(g, svc, cs)
 	g.P("return nil")
 	g.P("}")
 	g.P()
