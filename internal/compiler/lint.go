@@ -101,6 +101,7 @@ type Options struct {
 // studio cards rules (design §3.4, §3.5). Both are per-service or per-method
 // and need nothing from the rest of the tree, so they run everywhere,
 // PartialSet included.
+
 func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
@@ -374,6 +375,14 @@ func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path s
 	var walk func(protoreflect.MessageDescriptor, string)
 
 	walk = func(md protoreflect.MessageDescriptor, prefix string) {
+		// The same stop Compile makes at its root: a card is an opaque
+		// value to the field-policy walk (policy.IsOpaqueLeafMessage), and
+		// a card endpoint's whole response is one. Walking in would report
+		// every element of the vocabulary unlabelled, against a type whose
+		// policy travels on the value instead.
+		if policy.IsOpaqueLeafMessage(md) {
+			return
+		}
 		// L26 — a cycle in the message graph reachable from a tool.
 		//
 		// policy.Compile cannot flatten a cycle into its finite Plan and

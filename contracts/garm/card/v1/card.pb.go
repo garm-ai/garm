@@ -21,6 +21,7 @@
 package cardv1
 
 import (
+	v1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
@@ -43,6 +44,7 @@ const (
 	Kind_START            Kind = 1
 	Kind_TASK             Kind = 2
 	Kind_RUN              Kind = 3
+	Kind_ASK              Kind = 4
 )
 
 // Enum value maps for Kind.
@@ -52,12 +54,14 @@ var (
 		1: "START",
 		2: "TASK",
 		3: "RUN",
+		4: "ASK",
 	}
 	Kind_value = map[string]int32{
 		"KIND_UNSPECIFIED": 0,
 		"START":            1,
 		"TASK":             2,
 		"RUN":              3,
+		"ASK":              4,
 	}
 )
 
@@ -296,6 +300,200 @@ func (CardRole) EnumDescriptor() ([]byte, []int) {
 	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{4}
 }
 
+// Who may see one element of a card.
+//
+// Read by garmd, which knows this one type and drops what a viewer does not
+// reach at step 8 (design 3). Set by the TOOL that serves the card: by the
+// generated default from the source field's policy, or by an override.
+//
+// An absent label is NOT public. It means "the card endpoint's own policy",
+// which is the parent tool's clearance and compartments -- so forgetting to
+// label an element is as tight as the endpoint, never looser. An element
+// labelled BELOW the endpoint's policy fails the whole card
+// (500 card_invalid, design 3.2 floor 1).
+type Label struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Clearance     v1.Clearance           `protobuf:"varint,1,opt,name=clearance,proto3,enum=garm.tool.v1.Clearance" json:"clearance,omitempty"`
+	Compartments  []string               `protobuf:"bytes,2,rep,name=compartments,proto3" json:"compartments,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Label) Reset() {
+	*x = Label{}
+	mi := &file_garm_card_v1_card_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Label) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Label) ProtoMessage() {}
+
+func (x *Label) ProtoReflect() protoreflect.Message {
+	mi := &file_garm_card_v1_card_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Label.ProtoReflect.Descriptor instead.
+func (*Label) Descriptor() ([]byte, []int) {
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Label) GetClearance() v1.Clearance {
+	if x != nil {
+		return x.Clearance
+	}
+	return v1.Clearance(0)
+}
+
+func (x *Label) GetCompartments() []string {
+	if x != nil {
+		return x.Compartments
+	}
+	return nil
+}
+
+// CallRef names a garmd call: the id every tool sees (callctx.FromContext),
+// every ledger row carries, and the answer returns as Garm-Event-Id. It is
+// the argument of a tool's ResultCard.
+//
+// For an agent the call is the Invoke, and the runner records the call id on
+// the run row, so one id addresses a run and its card alike. RunRef stays for
+// GetRun.
+type CallRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CallId        *string                `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3,oneof" json:"call_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CallRef) Reset() {
+	*x = CallRef{}
+	mi := &file_garm_card_v1_card_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CallRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CallRef) ProtoMessage() {}
+
+func (x *CallRef) ProtoReflect() protoreflect.Message {
+	mi := &file_garm_card_v1_card_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CallRef.ProtoReflect.Descriptor instead.
+func (*CallRef) Descriptor() ([]byte, []int) {
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CallRef) GetCallId() string {
+	if x != nil && x.CallId != nil {
+		return *x.CallId
+	}
+	return ""
+}
+
+// TaskRef names one open task, and carries the material the viewer's client
+// rebuilt from the task card.
+//
+// The material travels because of an ordering fact: garmd refuses a
+// grant-mode call at step 5, before step 6 resolves the tool, so the tool
+// NEVER SAW the request that was parked. Its approval card cannot show what
+// it never received unless the fetch brings it (design 1.3).
+//
+// A lying map buys a wrong context beside the right material, never a wrong
+// grant: the digest is computed from what the tasks tool stored, and garmd
+// compares it with the request actually sent.
+type TaskRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        *string                `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3,oneof" json:"task_id,omitempty"`
+	Material      map[string]string      `protobuf:"bytes,2,rep,name=material,proto3" json:"material,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // dotted path -> canonical text
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskRef) Reset() {
+	*x = TaskRef{}
+	mi := &file_garm_card_v1_card_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskRef) ProtoMessage() {}
+
+func (x *TaskRef) ProtoReflect() protoreflect.Message {
+	mi := &file_garm_card_v1_card_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskRef.ProtoReflect.Descriptor instead.
+func (*TaskRef) Descriptor() ([]byte, []int) {
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TaskRef) GetTaskId() string {
+	if x != nil && x.TaskId != nil {
+		return *x.TaskId
+	}
+	return ""
+}
+
+func (x *TaskRef) GetMaterial() map[string]string {
+	if x != nil {
+		return x.Material
+	}
+	return nil
+}
+
+// A Card is an OPAQUE VALUE to the field-policy walk, and a structure only to
+// the daemon's card walk.
+//
+// That is the one thing to know before reading the rest of this message. A
+// field policy is per descriptor: it says what EVERY caller of this RPC may
+// see of this field, decided at compile time. A card's rows do not work that
+// way — a queue holds one task per approver, and the same `Fact` is readable
+// by one viewer and not the next — so the policy travels on the VALUE, as the
+// `access` label on each element. The daemon knows this one type and projects
+// it by those labels after the field plan has run.
+//
+// So `garm.card.v1.Card` is an opaque leaf to policy.Compile and to lint, the
+// way `google.protobuf.Timestamp` is: the field that HOLDS a card carries the
+// policy for the whole value, and no scalar inside one is classified
+// separately. A per-field policy in here would be a second mechanism
+// answering the same question differently, which is how a leak gets written.
+//
 // A Card is a projection of one object — a task, a run, or an agent's
 // input — rendered for ONE viewer at ONE moment. It is built by agentd or
 // a tool handler, validated at render time (§7), and crosses the policy
@@ -311,13 +509,17 @@ type Card struct {
 	Disclosure      *Disclosure            `protobuf:"bytes,7,opt,name=disclosure,proto3" json:"disclosure,omitempty"` // what was withheld from THIS viewer
 	Refs            []*CardRef             `protobuf:"bytes,8,rep,name=refs,proto3" json:"refs,omitempty"`             // pointers to other cards, never copies
 	CatalogueDigest string                 `protobuf:"bytes,9,opt,name=catalogue_digest,json=catalogueDigest,proto3" json:"catalogue_digest,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The whole card. A viewer who does not reach it gets nothing: dropped
+	// from a repeated field, NotFound as a unary answer (design 3.2 rule 1) --
+	// the same closed answer step 2 gives for a tool they may not see.
+	Access        *Label `protobuf:"bytes,10,opt,name=access,proto3" json:"access,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Card) Reset() {
 	*x = Card{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[0]
+	mi := &file_garm_card_v1_card_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -329,7 +531,7 @@ func (x *Card) String() string {
 func (*Card) ProtoMessage() {}
 
 func (x *Card) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[0]
+	mi := &file_garm_card_v1_card_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -342,7 +544,7 @@ func (x *Card) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Card.ProtoReflect.Descriptor instead.
 func (*Card) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{0}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Card) GetKind() Kind {
@@ -408,6 +610,13 @@ func (x *Card) GetCatalogueDigest() string {
 	return ""
 }
 
+func (x *Card) GetAccess() *Label {
+	if x != nil {
+		return x.Access
+	}
+	return nil
+}
+
 type CardRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          Kind                   `protobuf:"varint,1,opt,name=kind,proto3,enum=garm.card.v1.Kind" json:"kind,omitempty"`
@@ -420,7 +629,7 @@ type CardRef struct {
 
 func (x *CardRef) Reset() {
 	*x = CardRef{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[1]
+	mi := &file_garm_card_v1_card_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -432,7 +641,7 @@ func (x *CardRef) String() string {
 func (*CardRef) ProtoMessage() {}
 
 func (x *CardRef) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[1]
+	mi := &file_garm_card_v1_card_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -445,7 +654,7 @@ func (x *CardRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CardRef.ProtoReflect.Descriptor instead.
 func (*CardRef) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{1}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CardRef) GetKind() Kind {
@@ -485,14 +694,17 @@ type Element struct {
 	//	*Element_Divider
 	//	*Element_Input
 	//	*Element_Section
-	Of            isElement_Of `protobuf_oneof:"of"`
+	Of isElement_Of `protobuf_oneof:"of"`
+	// Who may see this element. For a Section, the FLOOR of every element
+	// inside it: a child may be labelled higher, never lower (lint C8).
+	Access        *Label `protobuf:"bytes,10,opt,name=access,proto3" json:"access,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Element) Reset() {
 	*x = Element{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[2]
+	mi := &file_garm_card_v1_card_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -504,7 +716,7 @@ func (x *Element) String() string {
 func (*Element) ProtoMessage() {}
 
 func (x *Element) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[2]
+	mi := &file_garm_card_v1_card_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -517,7 +729,7 @@ func (x *Element) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Element.ProtoReflect.Descriptor instead.
 func (*Element) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{2}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Element) GetOf() isElement_Of {
@@ -572,6 +784,13 @@ func (x *Element) GetSection() *Section {
 	return nil
 }
 
+func (x *Element) GetAccess() *Label {
+	if x != nil {
+		return x.Access
+	}
+	return nil
+}
+
 type isElement_Of interface {
 	isElement_Of()
 }
@@ -616,7 +835,7 @@ type Text struct {
 
 func (x *Text) Reset() {
 	*x = Text{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[3]
+	mi := &file_garm_card_v1_card_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +847,7 @@ func (x *Text) String() string {
 func (*Text) ProtoMessage() {}
 
 func (x *Text) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[3]
+	mi := &file_garm_card_v1_card_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +860,7 @@ func (x *Text) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Text.ProtoReflect.Descriptor instead.
 func (*Text) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{3}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Text) GetText() string {
@@ -667,7 +886,7 @@ type FactSet struct {
 
 func (x *FactSet) Reset() {
 	*x = FactSet{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[4]
+	mi := &file_garm_card_v1_card_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -679,7 +898,7 @@ func (x *FactSet) String() string {
 func (*FactSet) ProtoMessage() {}
 
 func (x *FactSet) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[4]
+	mi := &file_garm_card_v1_card_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -692,7 +911,7 @@ func (x *FactSet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactSet.ProtoReflect.Descriptor instead.
 func (*FactSet) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{4}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FactSet) GetFacts() []*Fact {
@@ -702,17 +921,25 @@ func (x *FactSet) GetFacts() []*Fact {
 	return nil
 }
 
+// A fact is a caption, a value, and -- when the value came from a field of a
+// governed message -- the dotted path it came from.
+//
+// `field` is what lets a client rebuild TaskRef.material from a task card's
+// Material section (design 2.3), and what garmd names in Disclosure instead
+// of a positional path when an element is withheld.
 type Fact struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
 	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Field         string                 `protobuf:"bytes,3,opt,name=field,proto3" json:"field,omitempty"`
+	Access        *Label                 `protobuf:"bytes,4,opt,name=access,proto3" json:"access,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Fact) Reset() {
 	*x = Fact{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[5]
+	mi := &file_garm_card_v1_card_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -724,7 +951,7 @@ func (x *Fact) String() string {
 func (*Fact) ProtoMessage() {}
 
 func (x *Fact) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[5]
+	mi := &file_garm_card_v1_card_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -737,7 +964,7 @@ func (x *Fact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Fact.ProtoReflect.Descriptor instead.
 func (*Fact) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{5}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Fact) GetLabel() string {
@@ -754,6 +981,20 @@ func (x *Fact) GetValue() string {
 	return ""
 }
 
+func (x *Fact) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *Fact) GetAccess() *Label {
+	if x != nil {
+		return x.Access
+	}
+	return nil
+}
+
 type Divider struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -762,7 +1003,7 @@ type Divider struct {
 
 func (x *Divider) Reset() {
 	*x = Divider{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[6]
+	mi := &file_garm_card_v1_card_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +1015,7 @@ func (x *Divider) String() string {
 func (*Divider) ProtoMessage() {}
 
 func (x *Divider) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[6]
+	mi := &file_garm_card_v1_card_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +1028,7 @@ func (x *Divider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Divider.ProtoReflect.Descriptor instead.
 func (*Divider) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{6}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{9}
 }
 
 type Section struct {
@@ -800,7 +1041,7 @@ type Section struct {
 
 func (x *Section) Reset() {
 	*x = Section{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[7]
+	mi := &file_garm_card_v1_card_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -812,7 +1053,7 @@ func (x *Section) String() string {
 func (*Section) ProtoMessage() {}
 
 func (x *Section) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[7]
+	mi := &file_garm_card_v1_card_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -825,7 +1066,7 @@ func (x *Section) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Section.ProtoReflect.Descriptor instead.
 func (*Section) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{7}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Section) GetTitle() string {
@@ -861,7 +1102,7 @@ type Input struct {
 
 func (x *Input) Reset() {
 	*x = Input{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[8]
+	mi := &file_garm_card_v1_card_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -873,7 +1114,7 @@ func (x *Input) String() string {
 func (*Input) ProtoMessage() {}
 
 func (x *Input) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[8]
+	mi := &file_garm_card_v1_card_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -886,7 +1127,7 @@ func (x *Input) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Input.ProtoReflect.Descriptor instead.
 func (*Input) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{8}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Input) GetId() string {
@@ -1006,7 +1247,7 @@ type TextInput struct {
 
 func (x *TextInput) Reset() {
 	*x = TextInput{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[9]
+	mi := &file_garm_card_v1_card_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1018,7 +1259,7 @@ func (x *TextInput) String() string {
 func (*TextInput) ProtoMessage() {}
 
 func (x *TextInput) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[9]
+	mi := &file_garm_card_v1_card_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1031,7 +1272,7 @@ func (x *TextInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TextInput.ProtoReflect.Descriptor instead.
 func (*TextInput) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{9}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TextInput) GetMaxLen() uint32 {
@@ -1058,7 +1299,7 @@ type NumberInput struct {
 
 func (x *NumberInput) Reset() {
 	*x = NumberInput{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[10]
+	mi := &file_garm_card_v1_card_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1070,7 +1311,7 @@ func (x *NumberInput) String() string {
 func (*NumberInput) ProtoMessage() {}
 
 func (x *NumberInput) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[10]
+	mi := &file_garm_card_v1_card_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1083,7 +1324,7 @@ func (x *NumberInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NumberInput.ProtoReflect.Descriptor instead.
 func (*NumberInput) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{10}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *NumberInput) GetMin() float64 {
@@ -1108,7 +1349,7 @@ type DateInput struct {
 
 func (x *DateInput) Reset() {
 	*x = DateInput{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[11]
+	mi := &file_garm_card_v1_card_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1120,7 +1361,7 @@ func (x *DateInput) String() string {
 func (*DateInput) ProtoMessage() {}
 
 func (x *DateInput) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[11]
+	mi := &file_garm_card_v1_card_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1133,7 +1374,7 @@ func (x *DateInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DateInput.ProtoReflect.Descriptor instead.
 func (*DateInput) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{11}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{14}
 }
 
 type ToggleInput struct {
@@ -1144,7 +1385,7 @@ type ToggleInput struct {
 
 func (x *ToggleInput) Reset() {
 	*x = ToggleInput{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[12]
+	mi := &file_garm_card_v1_card_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1156,7 +1397,7 @@ func (x *ToggleInput) String() string {
 func (*ToggleInput) ProtoMessage() {}
 
 func (x *ToggleInput) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[12]
+	mi := &file_garm_card_v1_card_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1169,7 +1410,7 @@ func (x *ToggleInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToggleInput.ProtoReflect.Descriptor instead.
 func (*ToggleInput) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{12}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{15}
 }
 
 type ChoiceInput struct {
@@ -1183,7 +1424,7 @@ type ChoiceInput struct {
 
 func (x *ChoiceInput) Reset() {
 	*x = ChoiceInput{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[13]
+	mi := &file_garm_card_v1_card_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1195,7 +1436,7 @@ func (x *ChoiceInput) String() string {
 func (*ChoiceInput) ProtoMessage() {}
 
 func (x *ChoiceInput) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[13]
+	mi := &file_garm_card_v1_card_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1208,7 +1449,7 @@ func (x *ChoiceInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChoiceInput.ProtoReflect.Descriptor instead.
 func (*ChoiceInput) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{13}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ChoiceInput) GetChoices() []*Choice {
@@ -1236,13 +1477,14 @@ type Choice struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
 	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Access        *Label                 `protobuf:"bytes,3,opt,name=access,proto3" json:"access,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Choice) Reset() {
 	*x = Choice{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[14]
+	mi := &file_garm_card_v1_card_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1254,7 +1496,7 @@ func (x *Choice) String() string {
 func (*Choice) ProtoMessage() {}
 
 func (x *Choice) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[14]
+	mi := &file_garm_card_v1_card_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1267,7 +1509,7 @@ func (x *Choice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Choice.ProtoReflect.Descriptor instead.
 func (*Choice) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{14}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Choice) GetTitle() string {
@@ -1284,6 +1526,13 @@ func (x *Choice) GetValue() string {
 	return ""
 }
 
+func (x *Choice) GetAccess() *Label {
+	if x != nil {
+		return x.Access
+	}
+	return nil
+}
+
 // Executes as the VIEWER, bound to the task the card is about (§4).
 type Query struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1296,7 +1545,7 @@ type Query struct {
 
 func (x *Query) Reset() {
 	*x = Query{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[15]
+	mi := &file_garm_card_v1_card_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1308,7 +1557,7 @@ func (x *Query) String() string {
 func (*Query) ProtoMessage() {}
 
 func (x *Query) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[15]
+	mi := &file_garm_card_v1_card_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1321,7 +1570,7 @@ func (x *Query) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Query.ProtoReflect.Descriptor instead.
 func (*Query) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{15}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Query) GetTool() string {
@@ -1360,7 +1609,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[16]
+	mi := &file_garm_card_v1_card_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1372,7 +1621,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[16]
+	mi := &file_garm_card_v1_card_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1385,7 +1634,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{16}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Action) GetId() string {
@@ -1444,7 +1693,7 @@ type Submit struct {
 
 func (x *Submit) Reset() {
 	*x = Submit{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[17]
+	mi := &file_garm_card_v1_card_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1456,7 +1705,7 @@ func (x *Submit) String() string {
 func (*Submit) ProtoMessage() {}
 
 func (x *Submit) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[17]
+	mi := &file_garm_card_v1_card_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1469,7 +1718,7 @@ func (x *Submit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Submit.ProtoReflect.Descriptor instead.
 func (*Submit) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{17}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *Submit) GetConfirmText() string {
@@ -1490,7 +1739,7 @@ type Disclosure struct {
 
 func (x *Disclosure) Reset() {
 	*x = Disclosure{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[18]
+	mi := &file_garm_card_v1_card_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1502,7 +1751,7 @@ func (x *Disclosure) String() string {
 func (*Disclosure) ProtoMessage() {}
 
 func (x *Disclosure) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[18]
+	mi := &file_garm_card_v1_card_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1515,7 +1764,7 @@ func (x *Disclosure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Disclosure.ProtoReflect.Descriptor instead.
 func (*Disclosure) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{18}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *Disclosure) GetWithheldFields() []string {
@@ -1536,7 +1785,7 @@ type Template struct {
 
 func (x *Template) Reset() {
 	*x = Template{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[19]
+	mi := &file_garm_card_v1_card_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1548,7 +1797,7 @@ func (x *Template) String() string {
 func (*Template) ProtoMessage() {}
 
 func (x *Template) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[19]
+	mi := &file_garm_card_v1_card_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1561,7 +1810,7 @@ func (x *Template) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Template.ProtoReflect.Descriptor instead.
 func (*Template) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{19}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *Template) GetTitle() string {
@@ -1600,7 +1849,7 @@ type TemplateElement struct {
 
 func (x *TemplateElement) Reset() {
 	*x = TemplateElement{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[20]
+	mi := &file_garm_card_v1_card_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1861,7 @@ func (x *TemplateElement) String() string {
 func (*TemplateElement) ProtoMessage() {}
 
 func (x *TemplateElement) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[20]
+	mi := &file_garm_card_v1_card_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1874,7 @@ func (x *TemplateElement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TemplateElement.ProtoReflect.Descriptor instead.
 func (*TemplateElement) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{20}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *TemplateElement) GetOf() isTemplateElement_Of {
@@ -1708,7 +1957,7 @@ type Facts struct {
 
 func (x *Facts) Reset() {
 	*x = Facts{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[21]
+	mi := &file_garm_card_v1_card_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1720,7 +1969,7 @@ func (x *Facts) String() string {
 func (*Facts) ProtoMessage() {}
 
 func (x *Facts) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[21]
+	mi := &file_garm_card_v1_card_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1733,7 +1982,7 @@ func (x *Facts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Facts.ProtoReflect.Descriptor instead.
 func (*Facts) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{21}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Facts) GetFacts() []*FactRef {
@@ -1753,7 +2002,7 @@ type FactRef struct {
 
 func (x *FactRef) Reset() {
 	*x = FactRef{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[22]
+	mi := &file_garm_card_v1_card_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1765,7 +2014,7 @@ func (x *FactRef) String() string {
 func (*FactRef) ProtoMessage() {}
 
 func (x *FactRef) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[22]
+	mi := &file_garm_card_v1_card_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1778,7 +2027,7 @@ func (x *FactRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FactRef.ProtoReflect.Descriptor instead.
 func (*FactRef) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{22}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FactRef) GetField() string {
@@ -1805,7 +2054,7 @@ type TemplateSection struct {
 
 func (x *TemplateSection) Reset() {
 	*x = TemplateSection{}
-	mi := &file_garm_card_v1_card_proto_msgTypes[23]
+	mi := &file_garm_card_v1_card_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1817,7 +2066,7 @@ func (x *TemplateSection) String() string {
 func (*TemplateSection) ProtoMessage() {}
 
 func (x *TemplateSection) ProtoReflect() protoreflect.Message {
-	mi := &file_garm_card_v1_card_proto_msgTypes[23]
+	mi := &file_garm_card_v1_card_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1830,7 +2079,7 @@ func (x *TemplateSection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TemplateSection.ProtoReflect.Descriptor instead.
 func (*TemplateSection) Descriptor() ([]byte, []int) {
-	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{23}
+	return file_garm_card_v1_card_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TemplateSection) GetTitle() string {
@@ -1896,7 +2145,28 @@ var File_garm_card_v1_card_proto protoreflect.FileDescriptor
 
 const file_garm_card_v1_card_proto_rawDesc = "" +
 	"\n" +
-	"\x17garm/card/v1/card.proto\x12\fgarm.card.v1\x1a google/protobuf/descriptor.proto\"\xf9\x02\n" +
+	"\x17garm/card/v1/card.proto\x12\fgarm.card.v1\x1a google/protobuf/descriptor.proto\x1a\x17garm/tool/v1/tool.proto\"b\n" +
+	"\x05Label\x125\n" +
+	"\tclearance\x18\x01 \x01(\x0e2\x17.garm.tool.v1.ClearanceR\tclearance\x12\"\n" +
+	"\fcompartments\x18\x02 \x03(\tR\fcompartments\"?\n" +
+	"\aCallRef\x12\x1c\n" +
+	"\acall_id\x18\x01 \x01(\tH\x00R\x06callId\x88\x01\x01:\n" +
+	"\x9a\xb5\x18\x06\b\n" +
+	"\"\x02\n" +
+	"\x00B\n" +
+	"\n" +
+	"\b_call_id\"\xbd\x01\n" +
+	"\aTaskRef\x12\x1c\n" +
+	"\atask_id\x18\x01 \x01(\tH\x00R\x06taskId\x88\x01\x01\x12?\n" +
+	"\bmaterial\x18\x02 \x03(\v2#.garm.card.v1.TaskRef.MaterialEntryR\bmaterial\x1a;\n" +
+	"\rMaterialEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01:\n" +
+	"\x9a\xb5\x18\x06\b\n" +
+	"\"\x02\n" +
+	"\x00B\n" +
+	"\n" +
+	"\b_task_id\"\xa6\x03\n" +
 	"\x04Card\x12&\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x12.garm.card.v1.KindR\x04kind\x12\x1d\n" +
 	"\n" +
@@ -1909,28 +2179,34 @@ const file_garm_card_v1_card_proto_rawDesc = "" +
 	"disclosure\x18\a \x01(\v2\x18.garm.card.v1.DisclosureR\n" +
 	"disclosure\x12)\n" +
 	"\x04refs\x18\b \x03(\v2\x15.garm.card.v1.CardRefR\x04refs\x12)\n" +
-	"\x10catalogue_digest\x18\t \x01(\tR\x0fcatalogueDigest\"\x91\x01\n" +
+	"\x10catalogue_digest\x18\t \x01(\tR\x0fcatalogueDigest\x12+\n" +
+	"\x06access\x18\n" +
+	" \x01(\v2\x13.garm.card.v1.LabelR\x06access\"\x91\x01\n" +
 	"\aCardRef\x12&\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x12.garm.card.v1.KindR\x04kind\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12)\n" +
-	"\x05state\x18\x04 \x01(\x0e2\x13.garm.card.v1.StateR\x05state\"\xfb\x01\n" +
+	"\x05state\x18\x04 \x01(\x0e2\x13.garm.card.v1.StateR\x05state\"\xa8\x02\n" +
 	"\aElement\x12(\n" +
 	"\x04text\x18\x01 \x01(\v2\x12.garm.card.v1.TextH\x00R\x04text\x12-\n" +
 	"\x05facts\x18\x02 \x01(\v2\x15.garm.card.v1.FactSetH\x00R\x05facts\x121\n" +
 	"\adivider\x18\x03 \x01(\v2\x15.garm.card.v1.DividerH\x00R\adivider\x12+\n" +
 	"\x05input\x18\x04 \x01(\v2\x13.garm.card.v1.InputH\x00R\x05input\x121\n" +
-	"\asection\x18\x05 \x01(\v2\x15.garm.card.v1.SectionH\x00R\asectionB\x04\n" +
+	"\asection\x18\x05 \x01(\v2\x15.garm.card.v1.SectionH\x00R\asection\x12+\n" +
+	"\x06access\x18\n" +
+	" \x01(\v2\x13.garm.card.v1.LabelR\x06accessB\x04\n" +
 	"\x02of\"N\n" +
 	"\x04Text\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x122\n" +
 	"\bemphasis\x18\x02 \x01(\x0e2\x16.garm.card.v1.EmphasisR\bemphasis\"3\n" +
 	"\aFactSet\x12(\n" +
-	"\x05facts\x18\x01 \x03(\v2\x12.garm.card.v1.FactR\x05facts\"2\n" +
+	"\x05facts\x18\x01 \x03(\v2\x12.garm.card.v1.FactR\x05facts\"u\n" +
 	"\x04Fact\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x14\n" +
+	"\x05field\x18\x03 \x01(\tR\x05field\x12+\n" +
+	"\x06access\x18\x04 \x01(\v2\x13.garm.card.v1.LabelR\x06access\"\t\n" +
 	"\aDivider\"R\n" +
 	"\aSection\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x121\n" +
@@ -1956,10 +2232,11 @@ const file_garm_card_v1_card_proto_rawDesc = "" +
 	"\vChoiceInput\x12.\n" +
 	"\achoices\x18\x01 \x03(\v2\x14.garm.card.v1.ChoiceR\achoices\x12)\n" +
 	"\x05query\x18\x02 \x01(\v2\x13.garm.card.v1.QueryR\x05query\x12\x14\n" +
-	"\x05multi\x18\x03 \x01(\bR\x05multi\"4\n" +
+	"\x05multi\x18\x03 \x01(\bR\x05multi\"a\n" +
 	"\x06Choice\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"U\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12+\n" +
+	"\x06access\x18\x03 \x01(\v2\x13.garm.card.v1.LabelR\x06access\"U\n" +
 	"\x05Query\x12\x12\n" +
 	"\x04tool\x18\x01 \x01(\tR\x04tool\x12\x1b\n" +
 	"\tmin_chars\x18\x02 \x01(\rR\bminChars\x12\x1b\n" +
@@ -1992,12 +2269,13 @@ const file_garm_card_v1_card_proto_rawDesc = "" +
 	"\x05label\x18\x02 \x01(\tR\x05label\"b\n" +
 	"\x0fTemplateSection\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x129\n" +
-	"\belements\x18\x02 \x03(\v2\x1d.garm.card.v1.TemplateElementR\belements*:\n" +
+	"\belements\x18\x02 \x03(\v2\x1d.garm.card.v1.TemplateElementR\belements*C\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\t\n" +
 	"\x05START\x10\x01\x12\b\n" +
 	"\x04TASK\x10\x02\x12\a\n" +
-	"\x03RUN\x10\x03*k\n" +
+	"\x03RUN\x10\x03\x12\a\n" +
+	"\x03ASK\x10\x04*k\n" +
 	"\x05State\x12\x15\n" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\b\n" +
 	"\x04OPEN\x10\x01\x12\f\n" +
@@ -2038,84 +2316,95 @@ func file_garm_card_v1_card_proto_rawDescGZIP() []byte {
 }
 
 var file_garm_card_v1_card_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_garm_card_v1_card_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_garm_card_v1_card_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_garm_card_v1_card_proto_goTypes = []any{
 	(Kind)(0),                           // 0: garm.card.v1.Kind
 	(State)(0),                          // 1: garm.card.v1.State
 	(Emphasis)(0),                       // 2: garm.card.v1.Emphasis
 	(Style)(0),                          // 3: garm.card.v1.Style
 	(CardRole)(0),                       // 4: garm.card.v1.CardRole
-	(*Card)(nil),                        // 5: garm.card.v1.Card
-	(*CardRef)(nil),                     // 6: garm.card.v1.CardRef
-	(*Element)(nil),                     // 7: garm.card.v1.Element
-	(*Text)(nil),                        // 8: garm.card.v1.Text
-	(*FactSet)(nil),                     // 9: garm.card.v1.FactSet
-	(*Fact)(nil),                        // 10: garm.card.v1.Fact
-	(*Divider)(nil),                     // 11: garm.card.v1.Divider
-	(*Section)(nil),                     // 12: garm.card.v1.Section
-	(*Input)(nil),                       // 13: garm.card.v1.Input
-	(*TextInput)(nil),                   // 14: garm.card.v1.TextInput
-	(*NumberInput)(nil),                 // 15: garm.card.v1.NumberInput
-	(*DateInput)(nil),                   // 16: garm.card.v1.DateInput
-	(*ToggleInput)(nil),                 // 17: garm.card.v1.ToggleInput
-	(*ChoiceInput)(nil),                 // 18: garm.card.v1.ChoiceInput
-	(*Choice)(nil),                      // 19: garm.card.v1.Choice
-	(*Query)(nil),                       // 20: garm.card.v1.Query
-	(*Action)(nil),                      // 21: garm.card.v1.Action
-	(*Submit)(nil),                      // 22: garm.card.v1.Submit
-	(*Disclosure)(nil),                  // 23: garm.card.v1.Disclosure
-	(*Template)(nil),                    // 24: garm.card.v1.Template
-	(*TemplateElement)(nil),             // 25: garm.card.v1.TemplateElement
-	(*Facts)(nil),                       // 26: garm.card.v1.Facts
-	(*FactRef)(nil),                     // 27: garm.card.v1.FactRef
-	(*TemplateSection)(nil),             // 28: garm.card.v1.TemplateSection
-	(*descriptorpb.ServiceOptions)(nil), // 29: google.protobuf.ServiceOptions
-	(*descriptorpb.MethodOptions)(nil),  // 30: google.protobuf.MethodOptions
-	(*descriptorpb.FieldOptions)(nil),   // 31: google.protobuf.FieldOptions
+	(*Label)(nil),                       // 5: garm.card.v1.Label
+	(*CallRef)(nil),                     // 6: garm.card.v1.CallRef
+	(*TaskRef)(nil),                     // 7: garm.card.v1.TaskRef
+	(*Card)(nil),                        // 8: garm.card.v1.Card
+	(*CardRef)(nil),                     // 9: garm.card.v1.CardRef
+	(*Element)(nil),                     // 10: garm.card.v1.Element
+	(*Text)(nil),                        // 11: garm.card.v1.Text
+	(*FactSet)(nil),                     // 12: garm.card.v1.FactSet
+	(*Fact)(nil),                        // 13: garm.card.v1.Fact
+	(*Divider)(nil),                     // 14: garm.card.v1.Divider
+	(*Section)(nil),                     // 15: garm.card.v1.Section
+	(*Input)(nil),                       // 16: garm.card.v1.Input
+	(*TextInput)(nil),                   // 17: garm.card.v1.TextInput
+	(*NumberInput)(nil),                 // 18: garm.card.v1.NumberInput
+	(*DateInput)(nil),                   // 19: garm.card.v1.DateInput
+	(*ToggleInput)(nil),                 // 20: garm.card.v1.ToggleInput
+	(*ChoiceInput)(nil),                 // 21: garm.card.v1.ChoiceInput
+	(*Choice)(nil),                      // 22: garm.card.v1.Choice
+	(*Query)(nil),                       // 23: garm.card.v1.Query
+	(*Action)(nil),                      // 24: garm.card.v1.Action
+	(*Submit)(nil),                      // 25: garm.card.v1.Submit
+	(*Disclosure)(nil),                  // 26: garm.card.v1.Disclosure
+	(*Template)(nil),                    // 27: garm.card.v1.Template
+	(*TemplateElement)(nil),             // 28: garm.card.v1.TemplateElement
+	(*Facts)(nil),                       // 29: garm.card.v1.Facts
+	(*FactRef)(nil),                     // 30: garm.card.v1.FactRef
+	(*TemplateSection)(nil),             // 31: garm.card.v1.TemplateSection
+	nil,                                 // 32: garm.card.v1.TaskRef.MaterialEntry
+	(v1.Clearance)(0),                   // 33: garm.tool.v1.Clearance
+	(*descriptorpb.ServiceOptions)(nil), // 34: google.protobuf.ServiceOptions
+	(*descriptorpb.MethodOptions)(nil),  // 35: google.protobuf.MethodOptions
+	(*descriptorpb.FieldOptions)(nil),   // 36: google.protobuf.FieldOptions
 }
 var file_garm_card_v1_card_proto_depIdxs = []int32{
-	0,  // 0: garm.card.v1.Card.kind:type_name -> garm.card.v1.Kind
-	1,  // 1: garm.card.v1.Card.state:type_name -> garm.card.v1.State
-	7,  // 2: garm.card.v1.Card.body:type_name -> garm.card.v1.Element
-	21, // 3: garm.card.v1.Card.actions:type_name -> garm.card.v1.Action
-	23, // 4: garm.card.v1.Card.disclosure:type_name -> garm.card.v1.Disclosure
-	6,  // 5: garm.card.v1.Card.refs:type_name -> garm.card.v1.CardRef
-	0,  // 6: garm.card.v1.CardRef.kind:type_name -> garm.card.v1.Kind
-	1,  // 7: garm.card.v1.CardRef.state:type_name -> garm.card.v1.State
-	8,  // 8: garm.card.v1.Element.text:type_name -> garm.card.v1.Text
-	9,  // 9: garm.card.v1.Element.facts:type_name -> garm.card.v1.FactSet
-	11, // 10: garm.card.v1.Element.divider:type_name -> garm.card.v1.Divider
-	13, // 11: garm.card.v1.Element.input:type_name -> garm.card.v1.Input
-	12, // 12: garm.card.v1.Element.section:type_name -> garm.card.v1.Section
-	2,  // 13: garm.card.v1.Text.emphasis:type_name -> garm.card.v1.Emphasis
-	10, // 14: garm.card.v1.FactSet.facts:type_name -> garm.card.v1.Fact
-	7,  // 15: garm.card.v1.Section.elements:type_name -> garm.card.v1.Element
-	14, // 16: garm.card.v1.Input.text:type_name -> garm.card.v1.TextInput
-	15, // 17: garm.card.v1.Input.number:type_name -> garm.card.v1.NumberInput
-	16, // 18: garm.card.v1.Input.date:type_name -> garm.card.v1.DateInput
-	17, // 19: garm.card.v1.Input.toggle:type_name -> garm.card.v1.ToggleInput
-	18, // 20: garm.card.v1.Input.choice:type_name -> garm.card.v1.ChoiceInput
-	19, // 21: garm.card.v1.ChoiceInput.choices:type_name -> garm.card.v1.Choice
-	20, // 22: garm.card.v1.ChoiceInput.query:type_name -> garm.card.v1.Query
-	3,  // 23: garm.card.v1.Action.style:type_name -> garm.card.v1.Style
-	22, // 24: garm.card.v1.Action.submit:type_name -> garm.card.v1.Submit
-	25, // 25: garm.card.v1.Template.body:type_name -> garm.card.v1.TemplateElement
-	26, // 26: garm.card.v1.TemplateElement.facts:type_name -> garm.card.v1.Facts
-	11, // 27: garm.card.v1.TemplateElement.divider:type_name -> garm.card.v1.Divider
-	28, // 28: garm.card.v1.TemplateElement.section:type_name -> garm.card.v1.TemplateSection
-	27, // 29: garm.card.v1.Facts.facts:type_name -> garm.card.v1.FactRef
-	25, // 30: garm.card.v1.TemplateSection.elements:type_name -> garm.card.v1.TemplateElement
-	29, // 31: garm.card.v1.result_card:extendee -> google.protobuf.ServiceOptions
-	30, // 32: garm.card.v1.task_card:extendee -> google.protobuf.MethodOptions
-	31, // 33: garm.card.v1.card_role:extendee -> google.protobuf.FieldOptions
-	24, // 34: garm.card.v1.result_card:type_name -> garm.card.v1.Template
-	24, // 35: garm.card.v1.task_card:type_name -> garm.card.v1.Template
-	4,  // 36: garm.card.v1.card_role:type_name -> garm.card.v1.CardRole
-	37, // [37:37] is the sub-list for method output_type
-	37, // [37:37] is the sub-list for method input_type
-	34, // [34:37] is the sub-list for extension type_name
-	31, // [31:34] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	33, // 0: garm.card.v1.Label.clearance:type_name -> garm.tool.v1.Clearance
+	32, // 1: garm.card.v1.TaskRef.material:type_name -> garm.card.v1.TaskRef.MaterialEntry
+	0,  // 2: garm.card.v1.Card.kind:type_name -> garm.card.v1.Kind
+	1,  // 3: garm.card.v1.Card.state:type_name -> garm.card.v1.State
+	10, // 4: garm.card.v1.Card.body:type_name -> garm.card.v1.Element
+	24, // 5: garm.card.v1.Card.actions:type_name -> garm.card.v1.Action
+	26, // 6: garm.card.v1.Card.disclosure:type_name -> garm.card.v1.Disclosure
+	9,  // 7: garm.card.v1.Card.refs:type_name -> garm.card.v1.CardRef
+	5,  // 8: garm.card.v1.Card.access:type_name -> garm.card.v1.Label
+	0,  // 9: garm.card.v1.CardRef.kind:type_name -> garm.card.v1.Kind
+	1,  // 10: garm.card.v1.CardRef.state:type_name -> garm.card.v1.State
+	11, // 11: garm.card.v1.Element.text:type_name -> garm.card.v1.Text
+	12, // 12: garm.card.v1.Element.facts:type_name -> garm.card.v1.FactSet
+	14, // 13: garm.card.v1.Element.divider:type_name -> garm.card.v1.Divider
+	16, // 14: garm.card.v1.Element.input:type_name -> garm.card.v1.Input
+	15, // 15: garm.card.v1.Element.section:type_name -> garm.card.v1.Section
+	5,  // 16: garm.card.v1.Element.access:type_name -> garm.card.v1.Label
+	2,  // 17: garm.card.v1.Text.emphasis:type_name -> garm.card.v1.Emphasis
+	13, // 18: garm.card.v1.FactSet.facts:type_name -> garm.card.v1.Fact
+	5,  // 19: garm.card.v1.Fact.access:type_name -> garm.card.v1.Label
+	10, // 20: garm.card.v1.Section.elements:type_name -> garm.card.v1.Element
+	17, // 21: garm.card.v1.Input.text:type_name -> garm.card.v1.TextInput
+	18, // 22: garm.card.v1.Input.number:type_name -> garm.card.v1.NumberInput
+	19, // 23: garm.card.v1.Input.date:type_name -> garm.card.v1.DateInput
+	20, // 24: garm.card.v1.Input.toggle:type_name -> garm.card.v1.ToggleInput
+	21, // 25: garm.card.v1.Input.choice:type_name -> garm.card.v1.ChoiceInput
+	22, // 26: garm.card.v1.ChoiceInput.choices:type_name -> garm.card.v1.Choice
+	23, // 27: garm.card.v1.ChoiceInput.query:type_name -> garm.card.v1.Query
+	5,  // 28: garm.card.v1.Choice.access:type_name -> garm.card.v1.Label
+	3,  // 29: garm.card.v1.Action.style:type_name -> garm.card.v1.Style
+	25, // 30: garm.card.v1.Action.submit:type_name -> garm.card.v1.Submit
+	28, // 31: garm.card.v1.Template.body:type_name -> garm.card.v1.TemplateElement
+	29, // 32: garm.card.v1.TemplateElement.facts:type_name -> garm.card.v1.Facts
+	14, // 33: garm.card.v1.TemplateElement.divider:type_name -> garm.card.v1.Divider
+	31, // 34: garm.card.v1.TemplateElement.section:type_name -> garm.card.v1.TemplateSection
+	30, // 35: garm.card.v1.Facts.facts:type_name -> garm.card.v1.FactRef
+	28, // 36: garm.card.v1.TemplateSection.elements:type_name -> garm.card.v1.TemplateElement
+	34, // 37: garm.card.v1.result_card:extendee -> google.protobuf.ServiceOptions
+	35, // 38: garm.card.v1.task_card:extendee -> google.protobuf.MethodOptions
+	36, // 39: garm.card.v1.card_role:extendee -> google.protobuf.FieldOptions
+	27, // 40: garm.card.v1.result_card:type_name -> garm.card.v1.Template
+	27, // 41: garm.card.v1.task_card:type_name -> garm.card.v1.Template
+	4,  // 42: garm.card.v1.card_role:type_name -> garm.card.v1.CardRole
+	43, // [43:43] is the sub-list for method output_type
+	43, // [43:43] is the sub-list for method input_type
+	40, // [40:43] is the sub-list for extension type_name
+	37, // [37:40] is the sub-list for extension extendee
+	0,  // [0:37] is the sub-list for field type_name
 }
 
 func init() { file_garm_card_v1_card_proto_init() }
@@ -2123,24 +2412,26 @@ func file_garm_card_v1_card_proto_init() {
 	if File_garm_card_v1_card_proto != nil {
 		return
 	}
-	file_garm_card_v1_card_proto_msgTypes[2].OneofWrappers = []any{
+	file_garm_card_v1_card_proto_msgTypes[1].OneofWrappers = []any{}
+	file_garm_card_v1_card_proto_msgTypes[2].OneofWrappers = []any{}
+	file_garm_card_v1_card_proto_msgTypes[5].OneofWrappers = []any{
 		(*Element_Text)(nil),
 		(*Element_Facts)(nil),
 		(*Element_Divider)(nil),
 		(*Element_Input)(nil),
 		(*Element_Section)(nil),
 	}
-	file_garm_card_v1_card_proto_msgTypes[8].OneofWrappers = []any{
+	file_garm_card_v1_card_proto_msgTypes[11].OneofWrappers = []any{
 		(*Input_Text)(nil),
 		(*Input_Number)(nil),
 		(*Input_Date)(nil),
 		(*Input_Toggle)(nil),
 		(*Input_Choice)(nil),
 	}
-	file_garm_card_v1_card_proto_msgTypes[16].OneofWrappers = []any{
+	file_garm_card_v1_card_proto_msgTypes[19].OneofWrappers = []any{
 		(*Action_Submit)(nil),
 	}
-	file_garm_card_v1_card_proto_msgTypes[20].OneofWrappers = []any{
+	file_garm_card_v1_card_proto_msgTypes[23].OneofWrappers = []any{
 		(*TemplateElement_Text)(nil),
 		(*TemplateElement_Facts)(nil),
 		(*TemplateElement_Divider)(nil),
@@ -2152,7 +2443,7 @@ func file_garm_card_v1_card_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_garm_card_v1_card_proto_rawDesc), len(file_garm_card_v1_card_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   24,
+			NumMessages:   28,
 			NumExtensions: 3,
 			NumServices:   0,
 		},

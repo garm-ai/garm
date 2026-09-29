@@ -259,6 +259,44 @@ A template contains no inputs, queries or actions: inputs come from the
 decision message, actions are fixed by the card's kind. `Template.context` is
 declared but not checked in this release.
 
+**Every part of a card carries a label.** `Label{clearance, compartments}` on
+an `Element`, a `Fact`, a `Choice` and on the `Card` itself says who may see
+that part. The tool that serves the card sets it — the generated default from
+the source field's policy, an override by hand — and the daemon drops what the
+viewer does not reach when it projects the answer. Two things about an absent
+label are worth saying plainly:
+
+- **Absent is not public.** An unlabelled element takes the card endpoint's
+  own policy, which is the parent tool's clearance and compartments. Forgetting
+  to label is as tight as the endpoint, never looser.
+- **Below the endpoint is an error, not a leak.** An element labelled beneath
+  the endpoint's own policy fails the whole card rather than being served.
+
+A `Section`'s label is the **floor** of everything inside it: a child may be
+labelled higher, never lower.
+
+`Fact.field` records the dotted path a fact's value came from, when it came
+from a field at all. That is what lets a client rebuild the material map for
+an approval and what the daemon names instead of a positional path when it
+withholds a fact.
+
+**A card is an opaque leaf to the field-policy walk.** `garm.card.v1.Card`
+joins the protobuf well-known types in `policy.IsOpaqueLeafMessage`: the field
+that holds a card carries the policy for the whole value, and no scalar inside
+one is classified separately. That is a policy decision, not an oversight — a
+field policy is per descriptor and decides what *every* caller may see, while
+a card's rows differ from one another, so the policy travels on the value. A
+per-field policy inside a card would be a second mechanism answering the same
+question differently. `CallRef` and `TaskRef` are ordinary request messages and
+are classified field by field like anything else.
+
+Two refs address the two things a card can be about: `CallRef{call_id}` is the
+daemon's call id — the one id every tool sees and every ledger row carries —
+and `TaskRef{task_id, material}` names an open task and carries the material
+the client rebuilt from its card, because a tool parked at the approval gate
+never saw the request that was parked. `Kind` gains `ASK`, for a question put
+to a person that is not an approval.
+
 **`garm.meta.v1`** is ownership — who is answerable for the thing a card
 shows. `(garm.meta.v1.owner)` (50301) on a tool service or an agent names a
 `team` (the unit a ledger row will be charged to), a `contact` and an

@@ -45,6 +45,14 @@ type Plan struct {
 // stopping at the repeat is a leak rather than an optimisation.
 func Compile(md protoreflect.MessageDescriptor, reg *Registry) (*Plan, error) {
 	p := &Plan{Desc: md}
+	// An opaque leaf as the ROOT message compiles to an empty plan rather
+	// than to one action per field inside it. The nested case is SubtreeOf's,
+	// but a tool whose whole response IS a card — every card endpoint — has
+	// no field above it to stop the walk, and descending would demand a
+	// policy on `Card.title` that the design says must not exist.
+	if IsOpaqueLeafMessage(md) {
+		return p, nil
+	}
 	seen := map[protoreflect.FullName]bool{}
 	if err := compileInto(p, md, reg, nil, "", seen); err != nil {
 		return nil, err
@@ -147,6 +155,15 @@ func compileInto(
 // wellKnownPrefix is the package every protobuf well-known type lives in.
 const wellKnownPrefix = "google.protobuf."
 
+// cardMessage is the one message of garm's own that is an opaque leaf.
+//
+// A card's policy travels on the VALUE — a Label on each element — because a
+// card's rows have different policies from one another and a field policy is
+// per descriptor. The daemon knows this type and projects it by those labels
+// after the field plan has run. Classifying `Card.title` at one clearance
+// would be a second mechanism answering the same question differently.
+const cardMessage = "garm.card.v1.Card"
+
 // IsOpaqueLeafMessage reports whether md is a message the policy walks treat
 // as an opaque VALUE rather than as a structure to classify field by field.
 //
@@ -180,8 +197,18 @@ const wellKnownPrefix = "google.protobuf."
 // answered here. Widening this predicate is a policy decision (an unannotated
 // foreign message would become an opaque value governed by one clearance,
 // instead of a build error), not a refactor.
+// garm.card.v1.Card is the ONE addition to the heuristic, and it is a policy
+// decision taken deliberately (cards-and-tasks design §3.1), not a widening
+// of the "a message we do not own" question above. It is named exactly, not
+// by prefix: the rest of garm.card.v1 — CallRef and TaskRef, which are
+// request messages with ordinary scalar fields — is classified field by
+// field like anything else.
 func IsOpaqueLeafMessage(md protoreflect.MessageDescriptor) bool {
-	return md != nil && strings.HasPrefix(string(md.FullName()), wellKnownPrefix)
+	if md == nil {
+		return false
+	}
+	name := string(md.FullName())
+	return strings.HasPrefix(name, wellKnownPrefix) || name == cardMessage
 }
 
 // SubtreeOf reports whether the policy walk descends into fd, and if so, into
