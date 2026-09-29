@@ -8,9 +8,14 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 
 	garm "github.com/garm-ai/garm"
+	"github.com/garm-ai/garm/contracts/cards"
 	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	"github.com/garm-ai/garm/internal/compiler"
 )
 
 // fixture is the smallest tree that produces a catalogue: the vendored
@@ -445,4 +450,99 @@ service Payments {
 			t.Errorf("the catalogue does not carry %s; a runner reading that namespace would have to reach a registry", want)
 		}
 	}
+}
+
+// The catalogue carries every tool's card endpoints, and still rebuilds.
+//
+// A card that is not in the file set is a card no viewer can fetch, whatever
+// the tool service registered — the daemon mounts what the catalogue
+// declares. And a set that gained methods referring to types the author's
+// file never imported would fail at the daemon's BOOT rather than here,
+// which is the wrong end of the pipe, so the imports are added too and the
+// result is re-resolved before it is written.
+func TestTheCatalogueCarriesEveryToolsCards(t *testing.T) {
+	dir := fixture(t)
+	appendProto(t, dir, `
+import "garm/meta/v1/meta.proto";
+message PayRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string reference = 1;
+}
+message PayResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string id = 1;
+}
+service Payments {
+  option (garm.meta.v1.owner) = { team: "payments-platform" contact: "#payments-oncall" };
+  rpc Pay(PayRequest) returns (PayResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "pay" title: "Pay" description: "Pay someone."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+      approval: { mode: MODE_GRANT approver_min_clearance: CLEARANCE_INTERNAL
+                  max_grant_age_seconds: 900 material_fields: ["reference"] }
+    };
+  }
+}
+`)
+	var cat cataloguev1.Catalogue
+	if err := proto.Unmarshal(build(t, dir, filepath.Join(t.TempDir(), "c.binpb")), &cat); err != nil {
+		t.Fatal(err)
+	}
+
+	// It rebuilds. This is the property the daemon's boot depends on, and the
+	// one that adding methods to somebody else's file most easily breaks.
+	files, err := protodesc.NewFiles(cat.GetFiles())
+	if err != nil {
+		t.Fatalf("the catalogue's descriptor set does not rebuild: %v", err)
+	}
+
+	// And the three cards of the one MODE_GRANT tool are on its own service,
+	// under the names contracts/cards derives — the same function the
+	// generator calls, which is why the daemon and the service agree.
+	var svc protoreflect.ServiceDescriptor
+	files.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
+		if s := fd.Services().ByName("Payments"); s != nil {
+			svc = s
+		}
+		return svc == nil
+	})
+	if svc == nil {
+		t.Fatal("the Payments service is not in the rebuilt catalogue")
+	}
+	for _, want := range []protoreflect.Name{"InputCard", "ResultCard", "ApprovalCard"} {
+		md := svc.Methods().ByName(want)
+		if md == nil {
+			t.Errorf("%s is not on the service; nothing could fetch it", want)
+			continue
+		}
+		if got := md.Output().FullName(); got != cards.CardType {
+			t.Errorf("%s returns %s, want %s", want, got, cards.CardType)
+		}
+	}
+
+	// The names the CATALOGUE carries are what the daemon routes by, so they
+	// are asserted as tool names and not only as method names.
+	tools, err := compiler.Tools(descriptorsOf(t, files))
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, tl := range tools {
+		have[tl.Name] = true
+	}
+	for _, want := range []string{"pay_input_card", "pay_result_card", "pay_approval_card"} {
+		if !have[want] {
+			t.Errorf("the catalogue has no tool %q", want)
+		}
+	}
+}
+
+func descriptorsOf(t *testing.T, files *protoregistry.Files) []protoreflect.FileDescriptor {
+	t.Helper()
+	var out []protoreflect.FileDescriptor
+	files.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
+		out = append(out, fd)
+		return true
+	})
+	return out
 }

@@ -98,6 +98,22 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, promptsRoot, out, source st
 		f.SourceCodeInfo = nil
 	}
 
+	// Every tool's card endpoints, added to the set after the author's own
+	// declarations have been linted and hashed.
+	//
+	// After the hash on purpose: a package's DescriptorHash is what a tool
+	// service advertises and the daemon compares at mount, and a service
+	// computes it from the tools its author declared. Hashing the cards here
+	// would move every existing service's digest without a single wire shape
+	// having changed.
+	synthesised, err := synthesiseCards(set, fds)
+	if err != nil {
+		return err
+	}
+	if err := rebuildable(set); err != nil {
+		return err
+	}
+
 	// One hash per proto package, matching how the generator emits them: a
 	// binding is per package, so a service serves one package and advertises
 	// one digest.
@@ -152,6 +168,7 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, promptsRoot, out, source st
 	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", out)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %d tool(s) in %d package(s), %d file(s), %d documented field(s), schema v%d\n",
 		len(tools), len(hashes), len(set.GetFile()), len(docs), garm.AnnotationSchemaVersion)
+	fmt.Fprintf(cmd.OutOrStdout(), "  %d synthesised card endpoint(s)\n", synthesised)
 	fmt.Fprintf(cmd.OutOrStdout(), "  digest sha256:%s\n", hex.EncodeToString(sum[:]))
 	// The FQN is proto package + resolved tool name, split at the last dot
 	// by everything that consumes it. Built here rather than read off Tool

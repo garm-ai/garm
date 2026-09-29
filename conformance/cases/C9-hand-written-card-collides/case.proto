@@ -1,0 +1,33 @@
+syntax = "proto3";
+package conformance.c9;
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/c9;c";
+
+message Req { option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } }; optional string q = 1; }
+message Res { option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } }; optional string a = 1; }
+
+// Every tool gets three card endpoints it never declared, added to the
+// catalogue after lint has run. This service has one tool, so its cards take
+// the bare names — and the author has hand-written a method called
+// `ResultCard`, meaning to customise what the tool's answer looks like.
+//
+// The catalogue would then carry two methods called ResultCard, and which one
+// a viewer reached would be an accident of indexing order. The fix is not a
+// proto at all: an override is a Go method on the generated Cards interface.
+service Balances {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  rpc GetBalance(Req) returns (Res) {
+    option (garm.tool.v1.tool) = {
+      name: "get_balance" title: "Get a balance" description: "Read a balance."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL
+    };
+  }
+  rpc ResultCard(garm.card.v1.CallRef) returns (garm.card.v1.Card) {
+    option (garm.tool.v1.tool) = {
+      name: "balance_result_card" title: "The answer" description: "What the balance call said."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL audience: [AUDIENCE_PERSON]
+    };
+  }
+}

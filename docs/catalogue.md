@@ -326,6 +326,69 @@ Two lint rules run where A1–A5 run, in `garm lint` and `garm catalogue build`:
   appears is a gate people disable. It becomes an error in a later release;
   add owners now and the upgrade is a no-op.
 
+### Cards on every tool
+
+Every tool in a catalogue carries up to three more methods that its author
+never wrote:
+
+```
+<Method>InputCard    (google.protobuf.Empty) returns (garm.card.v1.Card)
+<Method>ResultCard   (garm.card.v1.CallRef)  returns (garm.card.v1.Card)
+<Method>ApprovalCard (garm.card.v1.TaskRef)  returns (garm.card.v1.Card)
+```
+
+A tool has a form, an answer and — if somebody has to approve it — an open
+approval. Those are three more things a person needs to see about that tool,
+and the only place they are governed the same way as the call itself is *as
+calls to that tool*. So they are ordinary RPCs on the tool's own service, at
+the tool's own clearance, through the same ten steps and into the same ledger.
+
+**The author writes no proto.** `garm catalogue build` adds them to the
+descriptor set, and `protoc-gen-garm-go` adds the Go for them, and both call
+one function — `contracts/cards.Synthesise`. That sharing is the point and not
+an optimisation: the catalogue is what the daemon routes by and the binding is
+what the service registers, so if the two derived these names separately the
+first mismatch would be a card the daemon dispatches and the service does not
+serve, at run time, over a method neither author ever wrote. It is the same
+argument `wire.Subject` makes one layer down.
+
+**Naming.** A service with one tool, and an agent, get the bare names —
+`InputCard`, `ResultCard` — because there is nothing to distinguish them from.
+Everywhere else each card is prefixed with its parent's method name. The
+catalogue *tool* name is always derived from the parent's, so
+`initiate_payment` yields `initiate_payment_input_card` whichever spelling the
+method took.
+
+**The policy is the parent's**, with three things fixed and one added:
+
+| | |
+|---|---|
+| copied | `min_clearance`, `compartments` — a card is exactly as visible as the tool it describes, which is the floor an element's own label may not go below |
+| fixed | `verb: VERB_READ`; `approval: MODE_NONE`; `record_request` and `record_response` false — a card is built for one viewer at one moment and writing it down would put another viewer's withheld facts in the ledger. The audit *level* is still the parent's |
+| added | `audience: [PERSON]`, whatever the parent's audience is. A card exists to be read by a person, and that is exactly why a model is never offered one |
+| dropped | the parent's `sets`. A set says who holds a tool; holding `payments` is about calling payments tools, not about reading their forms |
+
+Two methods get no cards. One whose response *is* a card — serving a form for
+a form is a regress with nothing at the bottom. And an agent's `GetRun`, which
+is the same run read a second way: only `Invoke` gets the pair. An agent's
+`Invoke` is `MODE_NONE`, so it has no approval card either; an agent's
+approvals are its tasks, and those cards come from the tasks tool.
+
+**Synthesised methods are not in a package's `DescriptorHash`.** That digest
+is what a tool service advertises and the daemon compares at mount, and a
+service computes it from the tools its author declared. Hashing the cards
+would move every existing service's digest without a wire shape having
+changed.
+
+One lint rule guards the names, because they are added *after* lint runs:
+
+- **C9** (error) — a hand-written method may not take a synthesised card's
+  name, and a synthesised tool name must be a usable tool name (64 characters,
+  and `_approval_card` is fourteen of them). A collision would put two methods
+  of one name in the catalogue and leave which one a viewer reached to
+  indexing order. The fix is usually not a proto at all: an override is a Go
+  method on the generated `<Service>Cards` interface.
+
 ### Audience
 
 A tool declares **who it is for**, in its own contract:
