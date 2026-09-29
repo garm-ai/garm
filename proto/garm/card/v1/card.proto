@@ -205,6 +205,22 @@ message TemplateElement {
   }
 }
 message Facts { repeated FactRef facts = 1; }
-message FactRef { string field = 1; string label = 2; }
-message TemplateSection { string title = 1; repeated TemplateElement elements = 2; }
+
+// A declared fact, and optionally who may see it.
+//
+// `access` unset means the source field's own policy, which is what the
+// generated default would have labelled it anyway — so an author only writes
+// one when they want it TIGHTER. It can never usefully be looser: an element
+// labelled below its card endpoint fails the whole card, and a child labelled
+// below its Section is lint C8.
+message FactRef { string field = 1; string label = 2; Label access = 3; }
+
+// A titled group, and the FLOOR of everything inside it.
+//
+// A section is how a card says "this block is compliance's". Its label is a
+// floor rather than a value: a child may be labelled higher — one fact inside
+// a compliance section that only the head of compliance sees — and never
+// lower, because a reader who cannot see the heading cannot be shown what was
+// under it (lint C8).
+message TemplateSection { string title = 1; repeated TemplateElement elements = 2; Label access = 3; }
 enum CardRole { CARD_ROLE_UNSPECIFIED = 0; CARD_ROLE_TITLE = 1; CARD_ROLE_VALUE = 2; }

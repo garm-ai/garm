@@ -14,9 +14,12 @@ It is not the server. That is [`garmd`](../garmd).
 |---|---|
 | `proto/garm/tool/v1/` | The tool annotations — verb, clearance, compartments, tool sets, effects, guidance, approval, audit |
 | `proto/garm/agent/v1/` | The agent manifest — mode, principal, model, bounds, prompts, the tool allowlist and its guards |
-| `proto/garm/card/v1/` | The card vocabulary an inbox renders, and the `result_card` / `task_card` templates an author declares |
+| `proto/garm/card/v1/` | The card vocabulary an inbox renders, the per-element labels a viewer is projected against, and the `result_card` / `task_card` templates an author declares |
+| `proto/garm/tasks/v1/` | The task queue as eight governed tools — a contract this repository publishes and another serves |
 | `proto/garm/meta/v1/` | Ownership — the `owner` a tool service or agent names, shown on every card built from it |
 | `cmd/garm/` | The CLI |
+| `contracts/cards/` | The three card endpoints every tool serves: the names, and the defaults built from the descriptor |
+| `contracts/grants/` | Verifying an approval grant — the half a daemon and a tool service both need |
 | `internal/compiler/` | The reader, the emitter, and the lint rules |
 | `conformance/` | Golden proto sets and the errors they must produce |
 
@@ -81,6 +84,6 @@ not require the thing that enforces at run time.
 
 Shipped: `init`, `gen`, `lint`, `catalogue build|diff|publish`, `claims check`,
 `plugin`, `version`. Thirty-two tool lint rules (the L series), seven agent rules
-(A1–A5, A9, A10), two card rules (C1, C9) and one ownership rule (O1, a
-warning in v0.15.0), with nineteen conformance cases. What is still missing is in
+(A1–A5, A9, A10), three card rules (C1, C8, C9) and one ownership rule (O1, a
+warning in v0.15.0), with twenty conformance cases. What is still missing is in
 KNOWN-GAPS.md.

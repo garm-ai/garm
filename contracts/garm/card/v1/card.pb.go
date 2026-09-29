@@ -1992,10 +1992,18 @@ func (x *Facts) GetFacts() []*FactRef {
 	return nil
 }
 
+// A declared fact, and optionally who may see it.
+//
+// `access` unset means the source field's own policy, which is what the
+// generated default would have labelled it anyway — so an author only writes
+// one when they want it TIGHTER. It can never usefully be looser: an element
+// labelled below its card endpoint fails the whole card, and a child labelled
+// below its Section is lint C8.
 type FactRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
 	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Access        *Label                 `protobuf:"bytes,3,opt,name=access,proto3" json:"access,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2044,10 +2052,25 @@ func (x *FactRef) GetLabel() string {
 	return ""
 }
 
+func (x *FactRef) GetAccess() *Label {
+	if x != nil {
+		return x.Access
+	}
+	return nil
+}
+
+// A titled group, and the FLOOR of everything inside it.
+//
+// A section is how a card says "this block is compliance's". Its label is a
+// floor rather than a value: a child may be labelled higher — one fact inside
+// a compliance section that only the head of compliance sees — and never
+// lower, because a reader who cannot see the heading cannot be shown what was
+// under it (lint C8).
 type TemplateSection struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
 	Elements      []*TemplateElement     `protobuf:"bytes,2,rep,name=elements,proto3" json:"elements,omitempty"`
+	Access        *Label                 `protobuf:"bytes,3,opt,name=access,proto3" json:"access,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2092,6 +2115,13 @@ func (x *TemplateSection) GetTitle() string {
 func (x *TemplateSection) GetElements() []*TemplateElement {
 	if x != nil {
 		return x.Elements
+	}
+	return nil
+}
+
+func (x *TemplateSection) GetAccess() *Label {
+	if x != nil {
+		return x.Access
 	}
 	return nil
 }
@@ -2263,13 +2293,15 @@ const file_garm_card_v1_card_proto_rawDesc = "" +
 	"\asection\x18\x04 \x01(\v2\x1d.garm.card.v1.TemplateSectionH\x00R\asectionB\x04\n" +
 	"\x02of\"4\n" +
 	"\x05Facts\x12+\n" +
-	"\x05facts\x18\x01 \x03(\v2\x15.garm.card.v1.FactRefR\x05facts\"5\n" +
+	"\x05facts\x18\x01 \x03(\v2\x15.garm.card.v1.FactRefR\x05facts\"b\n" +
 	"\aFactRef\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12\x14\n" +
-	"\x05label\x18\x02 \x01(\tR\x05label\"b\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12+\n" +
+	"\x06access\x18\x03 \x01(\v2\x13.garm.card.v1.LabelR\x06access\"\x8f\x01\n" +
 	"\x0fTemplateSection\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x129\n" +
-	"\belements\x18\x02 \x03(\v2\x1d.garm.card.v1.TemplateElementR\belements*C\n" +
+	"\belements\x18\x02 \x03(\v2\x1d.garm.card.v1.TemplateElementR\belements\x12+\n" +
+	"\x06access\x18\x03 \x01(\v2\x13.garm.card.v1.LabelR\x06access*C\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\t\n" +
 	"\x05START\x10\x01\x12\b\n" +
@@ -2393,18 +2425,20 @@ var file_garm_card_v1_card_proto_depIdxs = []int32{
 	14, // 33: garm.card.v1.TemplateElement.divider:type_name -> garm.card.v1.Divider
 	31, // 34: garm.card.v1.TemplateElement.section:type_name -> garm.card.v1.TemplateSection
 	30, // 35: garm.card.v1.Facts.facts:type_name -> garm.card.v1.FactRef
-	28, // 36: garm.card.v1.TemplateSection.elements:type_name -> garm.card.v1.TemplateElement
-	34, // 37: garm.card.v1.result_card:extendee -> google.protobuf.ServiceOptions
-	35, // 38: garm.card.v1.task_card:extendee -> google.protobuf.MethodOptions
-	36, // 39: garm.card.v1.card_role:extendee -> google.protobuf.FieldOptions
-	27, // 40: garm.card.v1.result_card:type_name -> garm.card.v1.Template
-	27, // 41: garm.card.v1.task_card:type_name -> garm.card.v1.Template
-	4,  // 42: garm.card.v1.card_role:type_name -> garm.card.v1.CardRole
-	43, // [43:43] is the sub-list for method output_type
-	43, // [43:43] is the sub-list for method input_type
-	40, // [40:43] is the sub-list for extension type_name
-	37, // [37:40] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	5,  // 36: garm.card.v1.FactRef.access:type_name -> garm.card.v1.Label
+	28, // 37: garm.card.v1.TemplateSection.elements:type_name -> garm.card.v1.TemplateElement
+	5,  // 38: garm.card.v1.TemplateSection.access:type_name -> garm.card.v1.Label
+	34, // 39: garm.card.v1.result_card:extendee -> google.protobuf.ServiceOptions
+	35, // 40: garm.card.v1.task_card:extendee -> google.protobuf.MethodOptions
+	36, // 41: garm.card.v1.card_role:extendee -> google.protobuf.FieldOptions
+	27, // 42: garm.card.v1.result_card:type_name -> garm.card.v1.Template
+	27, // 43: garm.card.v1.task_card:type_name -> garm.card.v1.Template
+	4,  // 44: garm.card.v1.card_role:type_name -> garm.card.v1.CardRole
+	45, // [45:45] is the sub-list for method output_type
+	45, // [45:45] is the sub-list for method input_type
+	42, // [42:45] is the sub-list for extension type_name
+	39, // [39:42] is the sub-list for extension extendee
+	0,  // [0:39] is the sub-list for field type_name
 }
 
 func init() { file_garm_card_v1_card_proto_init() }

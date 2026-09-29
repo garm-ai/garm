@@ -273,7 +273,10 @@ label are worth saying plainly:
   the endpoint's own policy fails the whole card rather than being served.
 
 A `Section`'s label is the **floor** of everything inside it: a child may be
-labelled higher, never lower.
+labelled higher, never lower (lint C8). A template says the same thing
+declaratively — `TemplateSection.access` and `FactRef.access` — where an unset
+`access` means the source field's own policy, so an author writes one only to
+make something *tighter*.
 
 `Fact.field` records the dotted path a fact's value came from, when it came
 from a field at all. That is what lets a client rebuild the material map for
@@ -313,6 +316,13 @@ card it builds.
 
 Two lint rules run where A1–A5 run, in `garm lint` and `garm catalogue build`:
 
+- **C8** (error) — inside a template, a child may not be labelled below its
+  `Section`. A `Section`'s label is a **floor**, not a value: the daemon
+  removes what a viewer does not reach and it removes the section first, so a
+  viewer who cannot read the heading never sees what was under it. A child
+  labelled lower is therefore a fact labelled for an audience that can never
+  reach it. An *absent* child label is fine — absent means "the enclosing
+  policy", which is exactly the floor.
 - **C1** (error) — every `{field}` a `task_card` references is one of the
   tool's `approval.material_fields`, because the task stores those and
   nothing else of the request; a `result_card` references nothing at all,

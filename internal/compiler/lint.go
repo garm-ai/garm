@@ -66,7 +66,7 @@ type Options struct {
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
 // vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, A9, A10, C1,
-// C9 and O1)
+// C8, C9 and O1)
 // over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
@@ -103,6 +103,10 @@ type Options struct {
 // and need nothing from the rest of the tree, so they run everywhere,
 // PartialSet included.
 //
+// C8 (lint_section.go) holds a template's Section to being a floor: a child
+// may be labelled higher, never lower. It is per-service or per-method like
+// C1.
+//
 // C9 (lint_synth.go) guards the names contracts/cards will add to the
 // catalogue after lint has run. It is per-service and needs nothing from the
 // rest of the tree, so it runs everywhere too.
@@ -122,6 +126,7 @@ func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out = append(out, lintAgents(fds, opts)...)
 	out = append(out, lintCards(fds)...)
 	out = append(out, lintSynthesisedNames(fds)...)
+	out = append(out, lintSectionFloors(fds)...)
 	out = append(out, lintOwners(fds)...)
 	return out
 }

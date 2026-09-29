@@ -1,0 +1,61 @@
+syntax = "proto3";
+package conformance.c8;
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/c8;c";
+option (garm.tool.v1.compartments) = { declared: [
+  { name: "financial" description: "Money movement." },
+  { name: "compliance" description: "Screening and sanctions." }
+] };
+
+message InitiatePaymentRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional int64  amount_minor_units = 1;
+  optional string currency_code      = 2;
+}
+message InitiatePaymentResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+
+// The task card puts the material inside a Section labelled for compliance at
+// RESTRICTED — and then labels the facts inside it INTERNAL, without the
+// compartment, meaning to make them visible to more people.
+//
+// It does the opposite. The daemon removes what a viewer does not reach, and
+// it removes the SECTION first: anyone who cannot read the heading never sees
+// what was under it. So the two facts below are labelled for an audience that
+// can never reach them.
+service Payments {
+  option (garm.meta.v1.owner) = { team: "payments-platform" contact: "#payments-oncall" };
+  rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Initiate a payment" description: "Move money."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+      approval: { mode: MODE_GRANT approver_min_clearance: CLEARANCE_RESTRICTED
+                  approver_compartments: ["financial"]
+                  max_grant_age_seconds: 900
+                  material_fields: ["amount_minor_units", "currency_code"] }
+    };
+    option (garm.card.v1.task_card) = {
+      title: "Payment of {amount_minor_units} {currency_code}"
+      body: [{
+        section: {
+          title: "Screening"
+          access: { clearance: CLEARANCE_RESTRICTED compartments: ["compliance"] }
+          elements: [{
+            facts: {
+              facts: [
+                { field: "amount_minor_units" label: "Amount"
+                  access: { clearance: CLEARANCE_INTERNAL } },
+                { field: "currency_code" label: "Currency"
+                  access: { clearance: CLEARANCE_RESTRICTED compartments: ["financial"] } }
+              ]
+            }
+          }]
+        }
+      }]
+    };
+  }
+}
