@@ -3,6 +3,17 @@ modules:
   # The contract: the annotations, and nothing else. This is what a tool
   # author depends on, and the only module published.
   - path: proto
+    lint:
+      use: [STANDARD]
+      # A card crosses the wire as protojson with enums as strings, and the
+      # JSON — "kind": "TASK", "state": "OPEN", "emphasis": "SUBTLE" — is the
+      # contract with the renderer (studio cards design §1.1). buf's prefix
+      # and _UNSPECIFIED conventions would put KIND_TASK on the wire, so this
+      # one file keeps the spec's spellings. Everything else in the module
+      # follows the convention.
+      ignore_only:
+        ENUM_VALUE_PREFIX: [proto/garm/card/v1/card.proto]
+        ENUM_ZERO_VALUE_SUFFIX: [proto/garm/card/v1/card.proto]
   # Test fixtures. A module of their own so they can import the contract by
   # its real path rather than a relative one, and so lint rules meant for
   # the published contract do not judge a deliberately awkward fixture.

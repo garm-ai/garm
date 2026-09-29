@@ -31,4 +31,9 @@ import (
 	// this binary compiles, vendored or not — which is what `garm init`
 	// writes and what a conformance case imports.
 	_ "github.com/garm-ai/garm/contracts/garm/agent/v1"
+	// garm.card.v1 and garm.meta.v1 for the same reason: a template or an
+	// owner is an option on a service the tree declares, and the file that
+	// defines the extension has to resolve for the option to be parsed.
+	_ "github.com/garm-ai/garm/contracts/garm/card/v1"
+	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
 )

@@ -47,8 +47,35 @@ var AgentAnnotationsProto []byte
 // of "garm/agent/v1/agent.proto" has to resolve.
 const VendoredAgentAnnotationsPath = "third_party/proto/garm/agent/v1/agent.proto"
 
+// CardAnnotationsProto is proto/garm/card/v1/card.proto, exactly as
+// published: the card vocabulary and the result_card / task_card / card_role
+// templates an author declares beside a tool or an agent.
+//
+//go:embed proto/garm/card/v1/card.proto
+var CardAnnotationsProto []byte
+
+// VendoredCardAnnotationsPath is where CardAnnotationsProto belongs in a
+// consumer's tree. Same module, same reasoning as the two above; an import of
+// "garm/card/v1/card.proto" has to resolve.
+const VendoredCardAnnotationsPath = "third_party/proto/garm/card/v1/card.proto"
+
+// MetaAnnotationsProto is proto/garm/meta/v1/meta.proto, exactly as
+// published: the owner annotation a service or method carries.
+//
+//go:embed proto/garm/meta/v1/meta.proto
+var MetaAnnotationsProto []byte
+
+// VendoredMetaAnnotationsPath is where MetaAnnotationsProto belongs in a
+// consumer's tree; an import of "garm/meta/v1/meta.proto" has to resolve.
+const VendoredMetaAnnotationsPath = "third_party/proto/garm/meta/v1/meta.proto"
+
 // AnnotationSchemaVersion is the version of the garm.tool.v1 vocabulary this
 // build speaks, stamped into every catalogue it produces.
+//
+// garm.tool.v1 only. The sibling vocabularies — garm.agent.v1, garm.card.v1,
+// garm.meta.v1 — are read by the runner and never by the daemon, so a change
+// to them is not a change to what a daemon must understand and never bumps
+// this. cmd/garm's catalogue tests hold that line.
 //
 // A daemon reads the current version and the two previous and refuses anything
 // outside that window at boot. It is an integer rather than a semver because

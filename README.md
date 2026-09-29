@@ -14,6 +14,8 @@ It is not the server. That is [`garmd`](../garmd).
 |---|---|
 | `proto/garm/tool/v1/` | The tool annotations — verb, clearance, compartments, tool sets, effects, guidance, approval, audit |
 | `proto/garm/agent/v1/` | The agent manifest — mode, principal, model, bounds, prompts, the tool allowlist and its guards |
+| `proto/garm/card/v1/` | The card vocabulary an inbox renders, and the `result_card` / `task_card` templates an author declares |
+| `proto/garm/meta/v1/` | Ownership — the `owner` a tool service or agent names, shown on every card built from it |
 | `cmd/garm/` | The CLI |
 | `internal/compiler/` | The reader, the emitter, and the lint rules |
 | `conformance/` | Golden proto sets and the errors they must produce |

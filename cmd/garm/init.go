@@ -111,6 +111,8 @@ func runInit(cmd *cobra.Command, dir string, force bool) error {
 	}{
 		{garm.VendoredAnnotationsPath, garm.AnnotationsProto},
 		{garm.VendoredAgentAnnotationsPath, garm.AgentAnnotationsProto},
+		{garm.VendoredCardAnnotationsPath, garm.CardAnnotationsProto},
+		{garm.VendoredMetaAnnotationsPath, garm.MetaAnnotationsProto},
 		{"buf.yaml", []byte(bufYAML)},
 		{"buf.gen.yaml", []byte(bufGenYAML)},
 	}

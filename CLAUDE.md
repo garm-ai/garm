@@ -27,7 +27,8 @@ Two consequences that look like bugs and are not:
 
 | | |
 |---|---|
-| `proto/garm/tool/v1/tool.proto` | The annotations. The whole contract this repository owns |
+| `proto/garm/tool/v1/tool.proto` | The annotations. The contract a daemon reads, and the only namespace its version check covers |
+| `proto/garm/{agent,card,meta}/v1/` | The runner's vocabularies — manifest, card templates, owners. garmd never reads them; `garm init` vendors all four files |
 | `contracts/` | Generated Go: the annotations and the catalogue format. One module with the rest of this repository |
 | `policy/` | Compiles field annotations into redaction plans. `garmd` imports this rather than reimplementing it: two implementations of plan compilation would be a governance bug |
 | `internal/compiler/` | Loads protos, lints them, emits code. The plugin |

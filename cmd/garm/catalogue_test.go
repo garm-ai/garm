@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	garm "github.com/garm-ai/garm"
 	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
 )
 
@@ -364,5 +365,84 @@ func TestCatalogueBuildResolvesPromptsBesideTheProtoTree(t *testing.T) {
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("a correct tree failed to build: %v", err)
+	}
+}
+
+// The catalogue's schema version is scoped to garm.tool.v1 and nothing else.
+//
+// A daemon reads that number and refuses a catalogue outside its window. The
+// other three vocabularies — garm.agent.v1 (the manifest), garm.card.v1 (a
+// template), garm.meta.v1 (an owner) — are read by the runner and never by the
+// daemon, so a catalogue that carries all three still stamps the tool schema
+// version and nothing more: garmd stays agent-, card- and owner-blind, and the
+// daemon-side half of this test (garmd's agentblind tests) never sees a
+// number it does not understand. If any of those namespaces ever moved this
+// version, a daemon would refuse a catalogue at boot over an annotation it
+// does not read.
+func TestCatalogueSchemaVersionIgnoresTheRunnerNamespaces(t *testing.T) {
+	dir := fixture(t)
+	writeAgentFixture(t, dir, "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a")
+	// An owner and a task card on the tool service; a result card on the
+	// agent. Every non-tool namespace in one tree.
+	appendProto(t, dir, `
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
+message PayRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string reference = 1;
+}
+message PayResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string id = 1;
+}
+service Payments {
+  option (garm.meta.v1.owner) = { team: "payments-platform" contact: "#payments-oncall" };
+  rpc Pay(PayRequest) returns (PayResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "pay" title: "Pay" description: "Pay someone."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+      approval: { mode: MODE_GRANT approver_min_clearance: CLEARANCE_INTERNAL
+                  max_grant_age_seconds: 900 material_fields: ["reference"] }
+    };
+    option (garm.card.v1.task_card) = {
+      title: "Payment {reference}"
+      body: [{ facts: { facts: [{ field: "reference" label: "Reference" }] } }]
+    };
+  }
+}
+`)
+	agentPath := filepath.Join(dir, "proto", "bank", "v1", "agent.proto")
+	agent, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent = bytes.Replace(agent, []byte(`import "garm/tool/v1/tool.proto";`),
+		[]byte("import \"garm/tool/v1/tool.proto\";\nimport \"garm/card/v1/card.proto\";\nimport \"garm/meta/v1/meta.proto\";"), 1)
+	agent = bytes.Replace(agent, []byte("service Assistant {\n"),
+		[]byte("service Assistant {\n  option (garm.meta.v1.owner) = { team: \"agent-platform\" };\n"+
+			"  option (garm.card.v1.result_card) = { title: \"Answered\" body: [{ text: \"See the run.\" }] };\n"), 1)
+	if err := os.WriteFile(agentPath, agent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var cat cataloguev1.Catalogue
+	if err := proto.Unmarshal(build(t, dir, filepath.Join(t.TempDir(), "c.binpb")), &cat); err != nil {
+		t.Fatal(err)
+	}
+	if got := cat.GetAnnotationSchemaVersion(); got != garm.AnnotationSchemaVersion {
+		t.Errorf("annotation_schema_version = %d, want %d: the version is garm.tool.v1's and "+
+			"an agent, a card template or an owner must not move it", got, garm.AnnotationSchemaVersion)
+	}
+	// And the artifact is self-contained: a runner resolving the templates
+	// and owners it reads finds the files that define them in the catalogue,
+	// not on a registry.
+	have := map[string]bool{}
+	for _, f := range cat.GetFiles().GetFile() {
+		have[f.GetName()] = true
+	}
+	for _, want := range []string{"garm/agent/v1/agent.proto", "garm/card/v1/card.proto", "garm/meta/v1/meta.proto"} {
+		if !have[want] {
+			t.Errorf("the catalogue does not carry %s; a runner reading that namespace would have to reach a registry", want)
+		}
 	}
 }

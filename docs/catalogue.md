@@ -91,6 +91,8 @@ catalogue — costs single-digit megabytes.
 $ garm init .
 wrote third_party/proto/garm/tool/v1/tool.proto
 wrote third_party/proto/garm/agent/v1/agent.proto
+wrote third_party/proto/garm/card/v1/card.proto
+wrote third_party/proto/garm/meta/v1/meta.proto
 wrote buf.yaml
 wrote buf.gen.yaml
 
