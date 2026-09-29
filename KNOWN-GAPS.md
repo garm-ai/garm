@@ -52,8 +52,11 @@ Gaps in the contract itself are in
   needs the answer, and the generated wrapper cannot reach a response the
   handler returned to somebody else. Until the runtime seals each call's
   response under its call id, the default answers `result_unavailable`; a tool
-  that keeps its own record overrides `ResultCard` and calls the generated
-  `<Method>ResultCardFrom`.
+  that keeps its own record overrides the card's RPC name (`ResultCard`, or
+  `<Method>ResultCard` on a service with more than one tool) and calls the
+  generated builder, which is named `<Service><Card>From` — the Go identifier
+  is qualified by the service where the RPC name is not; see
+  `docs/catalogue.md`.
 - **The generated cards leave repeated fields out.** No control for a list on
   an input card, no layout for one on a result card — the wrong layout is worse
   than an override. A result card's facts are the scalar leaves reachable

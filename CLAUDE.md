@@ -127,6 +127,17 @@ forced different names:
   it. A tool author now imports the annotations and never sees
   `GenerationService`.
 
+One rule for the code this repository *writes*, rather than the code it is:
+**a generated package-level identifier is qualified by its service, always.**
+`contracts/cards.methodName` gives a card a bare RPC name on an agent and on a
+single-tool service, and that is correct — an RPC name is scoped by the
+service it hangs off. A Go identifier is not, so `emit_cards.go` spells
+`Default<Service><Card>` and `<Service><Card>From` (see `cardDefaultName`).
+Qualifying only where a package happens to collide would make the generated
+API depend on what else is in the package; adding a second service would
+silently rename the first one's helpers. Do not derive a Go name from
+`c.Name` alone.
+
 ## Working here
 
 ```

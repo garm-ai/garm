@@ -32,6 +32,17 @@ real path without reaching a registry. `garm gen` then shells out to `buf`,
 which is a **runtime** dependency of this tool: garm drives buf over your
 protos, and buf invokes this binary back as a local plugin.
 
+Upgrading across **v0.19.0** renames the generated card helpers: the default
+is now `Default<Service><Card>` and the result builder `<Service><Card>From`,
+where a single-tool service or an agent used to get the bare
+`DefaultInputCard` and `ResultCardFrom`. A Go identifier is package level
+where an RPC name is scoped by its service, so five agent services in one
+proto package produced five `DefaultInputCard` and the package did not
+compile. The card's RPC name is unchanged, so an **override is unaffected**
+and no catalogue digest moved; regenerate, and rename any direct call to a
+default. [docs/catalogue.md](docs/catalogue.md) has the rule and why it
+differs from the RPC name.
+
 ## What is here
 
 | | |

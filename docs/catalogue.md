@@ -370,12 +370,34 @@ first mismatch would be a card the daemon dispatches and the service does not
 serve, at run time, over a method neither author ever wrote. It is the same
 argument `wire.Subject` makes one layer down.
 
-**Naming.** A service with one tool, and an agent, get the bare names —
+**Naming.** A service with one tool, and an agent, get the bare RPC names —
 `InputCard`, `ResultCard` — because there is nothing to distinguish them from.
 Everywhere else each card is prefixed with its parent's method name. The
 catalogue *tool* name is always derived from the parent's, so
 `initiate_payment` yields `initiate_payment_input_card` whichever spelling the
 method took.
+
+**The Go identifiers are qualified by the service; the RPC name is not.**
+An RPC name is already scoped by the service it hangs off —
+`PaymentsService.InputCard` is unambiguous, and reads better than
+`PaymentsService.PayInputCard` when `Pay` is the only tool there — and the
+catalogue's own name for the same card carries the tool
+(`card_guardian_input_card`). A generated Go identifier has neither scope: it
+is package level, and a proto package holding five agent services asked for
+five `DefaultInputCard` in one Go package. So since v0.19.0 the generated
+default is `Default<Service><Card>` and the result builder is
+`<Service><Card>From` — `DefaultCardGuardianInputCard`,
+`CardGuardianResultCardFrom`.
+
+Qualified *always*, not only where a second service in the package would
+collide. Qualifying on collision would keep the shorter name where it is
+available, at the price of making the generated API depend on what else is in
+the package: adding a second service would silently rename the first one's
+helpers, and a caller that compiled yesterday would fail because of a change
+to a file it does not import. A name derivable from (service, card) alone is
+worth the length. Overriding is unaffected — an override is a method named
+after the RPC, which did not move, so no descriptor and no catalogue digest
+moved with it.
 
 **The policy is the parent's**, with three things fixed and one added:
 
@@ -421,7 +443,7 @@ returned to somebody else. The runtime is meant to seal each call's response
 under its call id and hand it back; until that store exists the default
 answers `result_unavailable`, and a tool that keeps its own record overrides
 `ResultCard`, reads its own row and calls the generated
-`<Method>ResultCardFrom` with it.
+`<Service><Card>From` with it.
 
 **Overriding.** Implement the method on your handler:
 

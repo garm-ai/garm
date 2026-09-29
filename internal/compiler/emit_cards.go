@@ -103,6 +103,33 @@ func cardSignature(g *protogen.GeneratedFile, c serviceCard) string {
 		g.QualifiedGoIdent(cardv1Pkg.Ident("Card")))
 }
 
+// cardDefaultName and cardBuilderName are the two package-level Go
+// identifiers a card contributes, and both are qualified by the service.
+//
+// The card's RPC name (c.Name) is bare on an agent and on a service with one
+// tool — `PaymentsService.InputCard`, not `PaymentsService.PayInputCard` —
+// and that is right, because an RPC name is already scoped by the service it
+// hangs off and the catalogue's own name is qualified too
+// (card_guardian_input_card). A Go identifier has no such scope: it is
+// package level, and `bank.agents.v1` declaring five agent services asked for
+// five `DefaultInputCard` in one package. Two single-tool services in one
+// proto package do the same without an agent in sight.
+//
+// So the service qualifies the Go name ALWAYS, not only where a second
+// service happens to collide. Qualifying on collision would keep the shorter
+// name where it is available, at the price of making the generated API depend
+// on what else is in the package: adding a second service would silently
+// rename the first one's helpers, and a caller that compiled yesterday would
+// fail on a change to a file it does not import. A name that is always
+// derivable from (service, card) is worth the length.
+func cardDefaultName(svc string, c serviceCard) string {
+	return "Default" + svc + string(c.Name)
+}
+
+func cardBuilderName(svc string, c serviceCard) string {
+	return svc + string(c.Name) + "From"
+}
+
 func cardRequestIdent(c serviceCard) protogen.GoIdent {
 	switch c.InputType {
 	case cards.CallRefType:
@@ -122,9 +149,13 @@ func cardRequestIdent(c serviceCard) protogen.GoIdent {
 // response the handler returned to somebody else. Two functions are emitted
 // for it — the registered default, which answers result_unavailable, and a
 // typed builder a tool with its OWN record calls from an override.
+//
+// Both names are qualified by the service; see cardDefaultName for why the
+// Go identifier does that where the RPC name does not.
 func emitCardDefaults(g *protogen.GeneratedFile, svc string, cs []serviceCard) {
 	for _, c := range cs {
-		def := "Default" + string(c.Name)
+		def := cardDefaultName(svc, c)
+		from := cardBuilderName(svc, c)
 		req := g.QualifiedGoIdent(cardRequestIdent(c))
 		card := g.QualifiedGoIdent(cardv1Pkg.Ident("Card"))
 		ctx := g.QualifiedGoIdent(contextPkg.Ident("Context"))
@@ -171,18 +202,18 @@ func emitCardDefaults(g *protogen.GeneratedFile, svc string, cs []serviceCard) {
 			g.P("// runtime is meant to seal each call's response under its call id and")
 			g.P("// hand it back here; until that store exists, only a tool that keeps")
 			g.P("// its OWN record has a result card — override ", c.Name, ", read your")
-			g.P("// own row, and call ", string(c.Name), "From with it.")
+			g.P("// own row, and call ", from, " with it.")
 			g.P("func ", def, "(_ ", ctx, ", _ *", req, ") (*", card, ", error) {")
 			g.P("return nil, ", g.QualifiedGoIdent(cardsPkg.Ident("ErrResultUnavailable")))
 			g.P("}")
 			g.P()
-			g.P("// ", c.Name, "From builds ", parentName, "'s result card from a response")
+			g.P("// ", from, " builds ", parentName, "'s result card from a response")
 			g.P("// you already hold.")
 			g.P("//")
 			g.P("// One fact per scalar of the response, in declaration order, each")
 			g.P("// labelled at its own field's READ policy and carrying its dotted path.")
 			g.P("// This is what an override calls after reading its own store.")
-			g.P("func ", c.Name, "From(ref *", req, ", resp *", out, ") (*", card, ", error) {")
+			g.P("func ", from, "(ref *", req, ", resp *", out, ") (*", card, ", error) {")
 			g.P("md, err := garmCardMethod(", fmt.Sprintf("%q", parentFQN), ", ", fmt.Sprintf("%q", parentName), ")")
 			g.P("if err != nil { return nil, err }")
 			g.P("return ", g.QualifiedGoIdent(cardsPkg.Ident("BuildResultCard")), "(md, ref, resp)")
@@ -265,7 +296,7 @@ func emitCardEndpoints(g *protogen.GeneratedFile, svc string, cs []serviceCard) 
 		g.P("if o, ok := h.(interface{ ", cardSignature(g, c), " }); ok {")
 		g.P("return o.", c.Name, "(ctx, in)")
 		g.P("}")
-		g.P("return Default", c.Name, "(ctx, in)")
+		g.P("return ", cardDefaultName(svc, c), "(ctx, in)")
 		g.P("},")
 		g.P("); err != nil {")
 		g.P("return err")
