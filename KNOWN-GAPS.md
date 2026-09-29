@@ -66,6 +66,17 @@ services, so only the fixture's `TestService` case survives here. The
   annotation schema stayed at v1 so that an older daemon still mounts a
   catalogue carrying the field, on the same reasoning as `source` above.
 
+- **`contracts/grants` verifies a grant; it does not spend one.** The shared
+  half of grant verification — parse, verify the signature against a supplied
+  key set, read the claims (including `task`), compare a material map or a
+  request against the digest — lives in `contracts/grants` so that garmd and
+  a tool service check the same things the same way. What stays with each
+  caller: the replay cache that makes a grant single-use, the issuer and
+  audience allowlists, and the refusal shaping that decides what a surface
+  answers and when an operator is paged. A caller that verifies a grant and
+  does not record its `jti` has enforced everything except single use, which
+  is the one property this package cannot hold for it.
+
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three
