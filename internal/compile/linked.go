@@ -36,4 +36,12 @@ import (
 	// defines the extension has to resolve for the option to be parsed.
 	_ "github.com/garm-ai/garm/contracts/garm/card/v1"
 	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
+	// garm.tasks.v1 is a SERVICE contract rather than a vocabulary, and it is
+	// linked for a different reason from the three above: a deployment that
+	// wants the tasks tools in its catalogue imports this file from its own
+	// tree, and the import has to resolve without vendoring eight hundred
+	// lines of somebody else's service. Importing it is also what puts its
+	// tools in that catalogue — the compiler collects a file's imports into
+	// the descriptor set, and every annotated method in the set is a tool.
+	_ "github.com/garm-ai/garm/contracts/garm/tasks/v1"
 )

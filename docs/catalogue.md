@@ -384,6 +384,61 @@ ignores it and offers tools as it did before, which is the same trade
 catalogue at boot over an annotation the daemon is about to learn anyway.
 `KNOWN-GAPS.md` says what that costs until it does.
 
+### The tasks contract
+
+`proto/garm/tasks/v1/tasks.proto` is the first SERVICE this repository
+declares rather than a vocabulary. Nothing here serves it — `tasksd` does, in
+its own repository — and garm publishes it for the reason it publishes the
+annotations: the thing that serves it and the things that call it cannot drift
+apart, and a catalogue carrying it is built by the same compiler as every
+other tool.
+
+Eight tools, each an ordinary governed call with a ledger row under its
+caller:
+
+| Tool | Audience | For |
+|---|---|---|
+| `create_task` | `RUNNER` | a runner opens an approval or a question for the run it is executing |
+| `list_tasks` | `PERSON`, `AGENT` | the queue, as a list of cards |
+| `get_task` | `PERSON`, `AGENT` | one task: its frame, its history, its card |
+| `approval_card` | `PERSON` | the frame a person decides from |
+| `claim_task` / `release_task` | `PERSON`, `AGENT` | take a task out of the shared queue, and put it back |
+| `decide_task` | `PERSON` | approve, decline or answer |
+| `triage_task` | `AGENT`, `PERSON` | recommend, comment, reassign or decline — never approve |
+
+Three things about it are worth reading off the file:
+
+**Every method is `CLEARANCE_PUBLIC` at the method gate, on purpose.** *Which*
+task a viewer may see is decided per task by the label on its card, not per
+method. A method-level gate would have to be the lowest predicate any tool in
+the deployment declares, which is no gate at all.
+
+**Field policies are flat and `PUBLIC`, with two exceptions.** The per-row
+policy lives on the card; a field policy is per descriptor and cannot differ
+per task. The two fields that do carry a static `RESTRICTED` read policy —
+`Task.answer` and `DecideTaskRequest.grant` — are the ones whose value is data
+for a machine rather than something a person reads.
+
+**An agent can be on a queue without being able to say yes.** `triage_task` is
+`AUDIENCE_AGENT`; `decide_task` is not, so A9 refuses a manifest that names
+it, a model is never offered it, and the service refuses a caller whose chain
+carries `act`. That last refusal is made in three places — the STS will not
+mint from a delegated token, the service refuses one, and the daemon will not
+verify one — so the rule survives any one of them being wrong.
+
+`buf.yaml` excuses the file from four lint rules, and both excuses are design
+decisions rather than conveniences. The enum spellings (`"state": "CLAIMED"`)
+are the contract with a renderer, as `garm.card.v1`'s are. And
+`garm.card.v1.TaskRef` is deliberately the request of four methods: a client
+builds one ref for a task and uses it at every endpoint, including the target
+tool's own approval card in another package, rather than coercing between four
+identical per-RPC messages.
+
+Importing `garm/tasks/v1/tasks.proto` from a tree is what puts these tools in
+that tree's catalogue — the compiler collects a file's imports into the
+descriptor set, and every annotated method in the set is a tool. The file is
+linked into the CLI, so the import resolves without vendoring.
+
 ### Runner-supplied request fields
 
 A request field can belong to the runner rather than to whoever is asking.

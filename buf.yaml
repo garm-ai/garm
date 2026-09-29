@@ -11,9 +11,30 @@ modules:
       # and _UNSPECIFIED conventions would put KIND_TASK on the wire, so this
       # one file keeps the spec's spellings. Everything else in the module
       # follows the convention.
+      #
+      # garm.tasks.v1 keeps the same spellings for the same reason — a task's
+      # kind, state and decision reach a person's client as protojson strings
+      # ("state": "CLAIMED", "decision": "APPROVE"), and that JSON is the
+      # contract with the renderer.
+      #
+      # The three RPC naming rules are excused for that file too, and this is
+      # a design decision rather than a convenience. `garm.card.v1.TaskRef` is
+      # the request of get_task, approval_card, claim_task and release_task
+      # ON PURPOSE: a client builds one ref for a task and uses it at every
+      # endpoint, including the target tool's own approval card in another
+      # package. A per-RPC GetTaskRequest/ClaimTaskRequest would be four
+      # identical messages and four coercions, and would make the ref stop
+      # being the one thing that names a task. `Task` is likewise the answer
+      # of every method that changes one, because what a caller wants back
+      # after claiming, deciding or triaging is the task.
       ignore_only:
-        ENUM_VALUE_PREFIX: [proto/garm/card/v1/card.proto]
+        ENUM_VALUE_PREFIX:
+          - proto/garm/card/v1/card.proto
+          - proto/garm/tasks/v1/tasks.proto
         ENUM_ZERO_VALUE_SUFFIX: [proto/garm/card/v1/card.proto]
+        RPC_REQUEST_STANDARD_NAME: [proto/garm/tasks/v1/tasks.proto]
+        RPC_RESPONSE_STANDARD_NAME: [proto/garm/tasks/v1/tasks.proto]
+        RPC_REQUEST_RESPONSE_UNIQUE: [proto/garm/tasks/v1/tasks.proto]
   # Test fixtures. A module of their own so they can import the contract by
   # its real path rather than a relative one, and so lint rules meant for
   # the published contract do not judge a deliberately awkward fixture.
@@ -25,6 +46,12 @@ modules:
       # unmet. It is a module of its own precisely so it can import the
       # contract by its real path, which is worth more than the rule.
       except: [PACKAGE_DIRECTORY_MATCH]
+# protovalidate, for garm.tasks.v1's request constraints. A dependency rather
+# than a vendored copy, for the reason internal/compile LINKS the schema
+# rather than vendoring it: one version of the constraint vocabulary, shared
+# by whoever compiles a constraint and whoever evaluates it at run time.
+deps:
+  - buf.build/bufbuild/protovalidate
 lint:
   use: [STANDARD]
 breaking:
