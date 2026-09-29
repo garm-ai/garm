@@ -1,6 +1,7 @@
 syntax = "proto3";
 package conformance.a3;
 import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/a3;c";
 option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
@@ -15,6 +16,7 @@ message Ledger {
 }
 
 service Books {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc ReadLedger(Ledger) returns (Ledger) {
     option (garm.tool.v1.tool) = {
       name: "read_ledger" title: "Read the ledger" description: "The whole ledger."
@@ -28,6 +30,7 @@ service Books {
 // list by this allowlist, so the tool simply never appears and the manifest
 // describes an agent nobody built.
 service Assistant {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   option (garm.agent.v1.agent) = {
     mode: MODE_REACT
     principal: { clearance: CLEARANCE_INTERNAL }

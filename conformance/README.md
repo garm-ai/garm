@@ -21,6 +21,9 @@ cases/
   A3-tool-above-clearance/          an agent may not list a tool it could never call
   A4-guard-on-unknown-field/        a guard is CEL over the tool's own request message
   A5-labels-differ/                 whoever can start a run can read it, and nobody else
+  C1-task-card-off-material/        a task card references material fields, and nothing else
+  O1-service-without-owner/         a tool service names who is answerable for it (a warning in v0.15.0)
+  valid-payment-card/               what an acceptable owner and task card look like — expected.txt is empty
 ```
 
 ## Running
@@ -56,7 +59,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Twelve cases against 36 rules. The rule count is the number of distinct rule
+Fifteen cases against 38 rules. The rule count is the number of distinct rule
 IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
 incremented tally — recount it after adding a rule with:
 
@@ -92,3 +95,15 @@ A1–A5 govern the agent manifest, which is read by a runner in a different
 repository. Nothing in `garm` executes an agent, so these five rules are the
 only place a bad manifest is refused with its author present — everywhere else
 it is a named agent that stops loading, at 3am, in an error log.
+
+## Why C1 and O1 are here
+
+A card template and an owner are read by agentd from the catalogue a task or
+run pinned, and rendered to a person deciding something. C1 refuses a
+`{field}` the card could never show — the task stores a tool's material
+fields and nothing else of the request — and O1 asks that the card can say
+who is answerable. O1 is a **warning** in v0.15.0 because no catalogue built
+before it carries an owner, and a gate nobody can pass on the day it appears
+is a gate people disable; it becomes an error once the catalogues this
+release ships with have caught up. Every case in this directory carries an
+owner so that each expectation stays about its own rule.

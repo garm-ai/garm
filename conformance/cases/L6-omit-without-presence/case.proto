@@ -1,5 +1,6 @@
 syntax = "proto3";
 package conformance.l6;
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/l6;c";
 
@@ -12,6 +13,7 @@ message Out {
   optional string note = 1;
 }
 service S {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc Go(In) returns (Out) {
     option (garm.tool.v1.tool) = {
       name: "go" title: "Go" description: "Omit on a presence-less scalar."

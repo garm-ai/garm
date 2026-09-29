@@ -240,6 +240,54 @@ governed tools that service declares — `Invoke` and `GetRun` — and never rea
 the annotation. The runner reads it. Lint rules A1–A5 check it at build time,
 so neither side discovers a bad manifest at load time.
 
+### Cards and owners
+
+Two more namespaces the daemon never reads, vendored by `garm init` beside the
+other two and carried in the catalogue like any other file.
+
+**`garm.card.v1`** is the vocabulary an inbox renders — a `Card` is one task,
+run or agent input projected for one viewer at one moment — and the templates
+an author may declare for it:
+
+| Annotation | Number | On | Declares |
+|---|---|---|---|
+| `(garm.card.v1.task_card)` | 50202 | a `MODE_GRANT` tool's method | the open approval's title and body, with `{field}` references to the tool's `approval.material_fields` |
+| `(garm.card.v1.result_card)` | 50201 | an agent service | the run card's title and body; literal text only in this release |
+| `(garm.card.v1.card_role)` | 50203 | a field of a query's response | declared for §4 queries; nothing reads it yet |
+
+A template contains no inputs, queries or actions: inputs come from the
+decision message, actions are fixed by the card's kind. `Template.context` is
+declared but not checked in this release.
+
+**`garm.meta.v1`** is ownership — who is answerable for the thing a card
+shows. `(garm.meta.v1.owner)` (50301) on a tool service or an agent names a
+`team` (the unit a ledger row will be charged to), a `contact` and an
+optional `on_call`; `(garm.meta.v1.method_owner)` (50302) overrides it for
+the rare method owned elsewhere. Metadata, not policy: it lives beside the
+card annotations rather than inside `garm.tool.v1`, and `ListTools` does not
+carry it.
+
+Neither namespace is read by `garmd`, and neither moves the schema version:
+the check above is scoped to `garm.tool.v1` and a catalogue annotated with
+both loads on a daemon that has never heard of them. agentd reads them from
+the catalogue generation the task or run pinned and puts the owner on every
+card it builds.
+
+Two lint rules run where A1–A5 run, in `garm lint` and `garm catalogue build`:
+
+- **C1** (error) — every `{field}` a `task_card` references is one of the
+  tool's `approval.material_fields`, because the task stores those and
+  nothing else of the request; a `result_card` references nothing at all,
+  because agents cannot declare an output type yet and there is no field for
+  a reference to resolve against. `context.<field>` references are left to a
+  later rule (C7) and are unchecked.
+- **O1** — every service with a `(garm.tool.v1.tool)` method or a
+  `(garm.agent.v1.agent)` option carries an `owner` with a non-empty `team`.
+  **A warning in v0.15.0, not an error**: no catalogue built before this
+  release names an owner, and a build gate nobody can pass on the day it
+  appears is a gate people disable. It becomes an error in a later release;
+  add owners now and the upgrade is a no-op.
+
 ## Who builds one
 
 Whoever owns the tools. There is no central catalogue.

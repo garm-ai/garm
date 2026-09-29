@@ -80,5 +80,6 @@ not require the thing that enforces at run time.
 ## Status
 
 Shipped: `init`, `gen`, `lint`, `catalogue build|diff|publish`, `claims check`,
-`plugin`, `version`. Thirty-one tool lint rules (the L series) and five agent rules (A1–A5), with
-twelve conformance cases. What is still missing is in KNOWN-GAPS.md.
+`plugin`, `version`. Thirty-one tool lint rules (the L series), five agent rules
+(A1–A5), one card rule (C1) and one ownership rule (O1, a warning in v0.15.0), with
+fifteen conformance cases. What is still missing is in KNOWN-GAPS.md.

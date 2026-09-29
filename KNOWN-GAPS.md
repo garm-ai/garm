@@ -33,6 +33,17 @@ services, so only the fixture's `TestService` case survives here. The
   one here would invent that contract in a lint rule. The repair loop that
   would evaluate them is out of scope for the agent MVP
   (`spec/…/2026-09-28-agent-mvp-design.md`, Scope: Out).
+- **Cards and owners are the demo slice, not the design.** `garm.card.v1`
+  and `garm.meta.v1` land whole (studio cards design §1.1, §3.2, §3.5), but
+  of the lint rules only C1 (with C3 folded in) and O1 exist. Not written:
+  C2 (`Input.id` against the decision message), C4 and C6 (queries and
+  `card_role`), C5 (a wall-of-facts warning), C7 (`Template.context` and
+  `context.<field>` references — C1 skips those references rather than
+  refusing them), O2 (team format) and O3 (`method_owner` in use). A
+  `result_card` may carry literal text only until agents declare an output
+  type (program plan §7 item 17); C1 says so when a reference appears. O1 is
+  a **warning** in v0.15.0 so existing catalogues still build; it is meant to
+  become an error once they carry owners.
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

@@ -1,5 +1,6 @@
 syntax = "proto3";
 package conformance.l3b;
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/l3b;l3b";
 
@@ -12,6 +13,7 @@ message Out {
   string status = 1;
 }
 service B {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc Get(In) returns (Out) {
     option (garm.tool.v1.tool) = {
       name: "get_status" title: "Get status" description: "Read a status."

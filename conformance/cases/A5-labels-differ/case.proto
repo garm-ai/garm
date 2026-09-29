@@ -1,6 +1,7 @@
 syntax = "proto3";
 package conformance.a5;
 import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/a5;c";
 option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
@@ -15,6 +16,7 @@ message Ask {
 // agent's output, derived from every tool the run touched — are a larger set
 // than the people who could have started one.
 service Assistant {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   option (garm.agent.v1.agent) = {
     mode: MODE_REACT
     principal: { clearance: CLEARANCE_INTERNAL }

@@ -65,8 +65,8 @@ type Options struct {
 }
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
-// vacant, superseded — plus L12-L18, L21-L24, L26-L29 and A1-A5) over the
-// input set, with the supplied options.
+// vacant, superseded — plus L12-L18, L21-L24, L26-L29, A1-A5, C1 and O1)
+// over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
 // thirty lines below, having arrived here on rebase. L29 was chosen over the
@@ -92,6 +92,11 @@ type Options struct {
 // A1-A5 are the agent rules (program plan §3.2) and live in lint_agent.go.
 // They are dispatched from here rather than from Lint because A2 needs a
 // prompts root, which a descriptor set does not carry.
+//
+// C1 (card templates, lint_card.go) and O1 (owners, lint_owner.go) are the
+// studio cards rules (design §3.4, §3.5). Both are per-service or per-method
+// and need nothing from the rest of the tree, so they run everywhere,
+// PartialSet included.
 func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
@@ -99,6 +104,8 @@ func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out = append(out, LintEffects(tools)...)
 	out = append(out, lintMaterialFields(tools)...)
 	out = append(out, lintAgents(fds, opts)...)
+	out = append(out, lintCards(fds)...)
+	out = append(out, lintOwners(fds)...)
 	return out
 }
 

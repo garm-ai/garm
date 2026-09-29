@@ -1,6 +1,7 @@
 syntax = "proto3";
 package conformance.a4;
 import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/a4;c";
 option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
@@ -20,6 +21,7 @@ message Paid {
 }
 
 service Payments {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc InitiatePayment(Pay) returns (Paid) {
     option (garm.tool.v1.tool) = {
       name: "initiate_payment" title: "Pay" description: "Move money."
@@ -34,6 +36,7 @@ service Payments {
 // refusal, so the tool quietly becomes uncallable and the run burns its
 // bounds discovering that.
 service Assistant {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   option (garm.agent.v1.agent) = {
     mode: MODE_REACT
     principal: { clearance: CLEARANCE_INTERNAL }
