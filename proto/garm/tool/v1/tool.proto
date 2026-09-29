@@ -92,11 +92,49 @@ message Redaction {
 // ---------------------------------------------------------------- field policy
 
 message FieldPolicy {
+  // Source says WHO supplies a request field's value.
+  //
+  // The default, SOURCE_UNSPECIFIED, is the caller: the field is part of the
+  // request as the contract exposes it. SOURCE_RUNNER says the value is the
+  // runner's — the thing that dispatches the call on a principal's behalf —
+  // and never a model's or a direct caller's.
+  //
+  // What each side does with it:
+  //
+  //   garmd projects a SOURCE_RUNNER field out of the schema ListTools hands
+  //   to any caller (it is not the caller's to fill) and refuses a request
+  //   that sets one unless the call's Garm-Invocation carries an `exec`
+  //   runner identity. That half is garmd v0.2.2; a daemon older than that
+  //   ignores the field entirely, which is why adding it did not move the
+  //   annotation schema version — see AnnotationSchemaVersion in embed.go.
+  //
+  //   agentd strips every SOURCE_RUNNER field from the schema a model sees
+  //   and fills each by rule at dispatch. The one rule this release knows:
+  //   a field named `idempotency_key` is filled with `<run_id>-<dispatch
+  //   seq>` — identical on the granted retry, distinct for a second call in
+  //   the same run. Lint L34 refuses a SOURCE_RUNNER field with any other
+  //   name, because a runner field with no rule is a request nobody can
+  //   send.
+  //
+  // Why a runner supplies an idempotency key and a model never does: a model
+  // that retries after a timeout it never saw the answer to picks a new key
+  // and pays twice, or reuses one for two different payments and pays once.
+  // The key must come from the thing that knows what a retry is.
+  enum Source {
+    SOURCE_UNSPECIFIED = 0;  // the caller's to fill
+    SOURCE_RUNNER      = 1;  // filled by the dispatching runner; refused from anyone else
+  }
+
   Clearance read  = 1;
   Clearance write = 2;               // unset = same as read
   repeated string compartments = 3;
   Redaction on_deny = 4;             // unset = omit
   bool audit_on_read = 5;
+
+  // Meaningful on a field of a tool's REQUEST message only. On a message's
+  // default_field_policy it is refused by L34: a default applies to every
+  // field, and "every field is the runner's" is never what anyone meant.
+  Source source = 6;
 }
 
 // ---------------------------------------------------------------- tool policy

@@ -23,6 +23,7 @@ cases/
   A5-labels-differ/                 whoever can start a run can read it, and nobody else
   C1-task-card-off-material/        a task card references material fields, and nothing else
   O1-service-without-owner/         a tool service names who is answerable for it (a warning in v0.15.0)
+  L34-runner-field-without-a-rule/  a SOURCE_RUNNER field must be one the runner can fill: idempotency_key
   valid-payment-card/               what an acceptable owner and task card look like — expected.txt is empty
 ```
 
@@ -59,7 +60,7 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Fifteen cases against 38 rules. The rule count is the number of distinct rule
+Sixteen cases against 39 rules. The rule count is the number of distinct rule
 IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
 incremented tally — recount it after adding a rule with:
 
@@ -95,6 +96,16 @@ A1–A5 govern the agent manifest, which is read by a runner in a different
 repository. Nothing in `garm` executes an agent, so these five rules are the
 only place a bad manifest is refused with its author present — everywhere else
 it is a named agent that stops loading, at 3am, in an error log.
+
+## Why L34 is here
+
+`source: SOURCE_RUNNER` on a field policy says the caller may not set the
+field and the model never sees it: the runner that dispatches the call fills
+it. The only fill rule a runner knows in this release is `idempotency_key` =
+`<run_id>-<dispatch seq>`, so a runner field with any other name is a request
+nobody can send — and the place that would otherwise discover it is a run
+failing at dispatch with the author absent. `valid-payment-card` carries the
+accepted shape: a top-level string named `idempotency_key` on the request.
 
 ## Why C1 and O1 are here
 

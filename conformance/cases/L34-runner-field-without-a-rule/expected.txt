@@ -1,0 +1,1 @@
+error: L34: conformance.l34.S.Go(input).correlation_id: a SOURCE_RUNNER field must be named "idempotency_key" — the only runner rule this release knows (agentd fills it with <run_id>-<dispatch seq>). A runner field with no rule is one the model cannot see, the caller may not set and the runner has nothing to put in

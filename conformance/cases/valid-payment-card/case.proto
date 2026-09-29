@@ -11,6 +11,10 @@ message InitiatePaymentRequest {
   optional int64  amount_minor_units = 1 [(buf.validate.field).required = true];
   optional string currency_code      = 2 [(buf.validate.field).required = true];
   optional string reference          = 3 [(buf.validate.field).required = true];
+  // The runner's, never the model's: agentd fills it with <run_id>-<dispatch
+  // seq>, garmd projects it out of the schema any caller sees. L34 accepts
+  // exactly this shape — a top-level string named idempotency_key.
+  string idempotency_key = 4 [(garm.tool.v1.field_policy) = { read: CLEARANCE_INTERNAL on_deny: { mask: {} } source: SOURCE_RUNNER }];
 }
 message InitiatePaymentResponse {
   option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };

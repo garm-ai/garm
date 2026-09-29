@@ -65,7 +65,7 @@ type Options struct {
 }
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
-// vacant, superseded — plus L12-L18, L21-L24, L26-L29, A1-A5, C1 and O1)
+// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, C1 and O1)
 // over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
@@ -93,6 +93,10 @@ type Options struct {
 // They are dispatched from here rather than from Lint because A2 needs a
 // prompts root, which a descriptor set does not carry.
 //
+// L34 (runner-supplied fields, lint_source.go) is a per-tool walk of the
+// request and response messages like lintMessage's, kept apart from it because
+// it judges one annotation field and nothing lintMessage computes.
+//
 // C1 (card templates, lint_card.go) and O1 (owners, lint_owner.go) are the
 // studio cards rules (design §3.4, §3.5). Both are per-service or per-method
 // and need nothing from the rest of the tree, so they run everywhere,
@@ -103,6 +107,7 @@ func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	tools, _ := Tools(fds)
 	out = append(out, LintEffects(tools)...)
 	out = append(out, lintMaterialFields(tools)...)
+	out = append(out, lintRunnerFields(tools)...)
 	out = append(out, lintAgents(fds, opts)...)
 	out = append(out, lintCards(fds)...)
 	out = append(out, lintOwners(fds)...)

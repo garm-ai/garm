@@ -44,6 +44,16 @@ services, so only the fixture's `TestService` case survives here. The
   type (program plan §7 item 17); C1 says so when a reference appears. O1 is
   a **warning** in v0.15.0 so existing catalogues still build; it is meant to
   become an error once they carry owners.
+- **`source: SOURCE_RUNNER` is declared here and enforced by agentd; garmd's
+  half is not built.** `FieldPolicy.source` (v0.16.0) says a request field
+  is the runner's, and lint L34 holds it to the one rule a runner knows
+  (`idempotency_key`). agentd strips and fills. What garmd is meant to do —
+  project the field out of `ListTools` and refuse a caller that sets one
+  without an `exec` runner identity on `Garm-Invocation` — is filed for
+  **garmd v0.2.2**. Until then a daemon serves the field to every caller and
+  the runner's overwrite is the only enforcement. The annotation schema
+  stayed at v1 so that a v0.2.0 daemon still mounts a catalogue carrying the
+  field; `docs/catalogue.md` says what that costs.
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

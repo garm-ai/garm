@@ -288,6 +288,58 @@ Two lint rules run where A1–A5 run, in `garm lint` and `garm catalogue build`:
   appears is a gate people disable. It becomes an error in a later release;
   add owners now and the upgrade is a no-op.
 
+### Runner-supplied request fields
+
+A request field can belong to the runner rather than to whoever is asking.
+`source: SOURCE_RUNNER` on its field policy says so:
+
+```proto
+string idempotency_key = 6 [(garm.tool.v1.field_policy) = {
+  read: CLEARANCE_PUBLIC on_deny: { mask: {} } source: SOURCE_RUNNER
+}];
+```
+
+Why this exists: an idempotency key chosen by a model is not idempotency. A
+model that retries after a timeout it never saw the answer to picks a new key
+and pays twice, or reuses one for two different payments and pays once. The
+key must come from the thing that knows what a retry is, and that is the
+runner's durable workflow — never the model, and never a caller typing a
+request by hand.
+
+What each side does with the mark:
+
+- **garmd** projects a `SOURCE_RUNNER` field out of the schema `ListTools`
+  hands to any caller — it is not the caller's to fill — and refuses a
+  request that sets one unless the call's `Garm-Invocation` carries an `exec`
+  runner identity. That is garmd's half, filed for **garmd v0.2.2**; a daemon
+  older than that ignores the field, which is what lets the annotation land
+  without moving the schema version (see below).
+- **agentd** strips every `SOURCE_RUNNER` field from the schema the model is
+  shown and fills each by rule at dispatch. The one rule this release knows:
+  `idempotency_key` = `<run_id>-<dispatch seq>` — identical on the granted
+  retry of a parked call, distinct for a second call in the same run.
+
+And the lint rule that keeps the two honest:
+
+- **L34** (error) — a `SOURCE_RUNNER` field must be a top-level string of
+  the request message named `idempotency_key`, the only runner rule this
+  release knows. A runner field with any other name is one the model cannot
+  see, the caller may not set and the runner has nothing to put in — a
+  request nobody can send. `source` on a response field, on a nested field,
+  or on a message's `default_field_policy` is refused for the same reason,
+  each with its own sentence. `SOURCE_UNSPECIFIED` — the default — is the
+  caller, and L34 never looks at a caller field whatever it is called.
+
+**The schema version did not move.** `source` is an additive field an older
+daemon reads as unknown bytes and ignores: every policy it already knew —
+`read`, `on_deny`, `compartments` — decodes exactly as before, and the
+catalogue still stamps **schema v1**. `cmd/garm`'s
+`TestASourceRunnerFieldLoadsOnASchemaV1Daemon` proves it by decoding a marked
+field through the v0.15.0 descriptor. The cost of not moving it is stated
+above: a daemon before v0.2.2 serves the field to callers and does not refuse
+one who sets it. Until then agentd's strip-and-overwrite is the enforcement,
+and it is tested there.
+
 ## Who builds one
 
 Whoever owns the tools. There is no central catalogue.

@@ -301,6 +301,80 @@ func (Grain) EnumDescriptor() ([]byte, []int) {
 	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{4}
 }
 
+// Source says WHO supplies a request field's value.
+//
+// The default, SOURCE_UNSPECIFIED, is the caller: the field is part of the
+// request as the contract exposes it. SOURCE_RUNNER says the value is the
+// runner's — the thing that dispatches the call on a principal's behalf —
+// and never a model's or a direct caller's.
+//
+// What each side does with it:
+//
+//	garmd projects a SOURCE_RUNNER field out of the schema ListTools hands
+//	to any caller (it is not the caller's to fill) and refuses a request
+//	that sets one unless the call's Garm-Invocation carries an `exec`
+//	runner identity. That half is garmd v0.2.2; a daemon older than that
+//	ignores the field entirely, which is why adding it did not move the
+//	annotation schema version — see AnnotationSchemaVersion in embed.go.
+//
+//	agentd strips every SOURCE_RUNNER field from the schema a model sees
+//	and fills each by rule at dispatch. The one rule this release knows:
+//	a field named `idempotency_key` is filled with `<run_id>-<dispatch
+//	seq>` — identical on the granted retry, distinct for a second call in
+//	the same run. Lint L34 refuses a SOURCE_RUNNER field with any other
+//	name, because a runner field with no rule is a request nobody can
+//	send.
+//
+// Why a runner supplies an idempotency key and a model never does: a model
+// that retries after a timeout it never saw the answer to picks a new key
+// and pays twice, or reuses one for two different payments and pays once.
+// The key must come from the thing that knows what a retry is.
+type FieldPolicy_Source int32
+
+const (
+	FieldPolicy_SOURCE_UNSPECIFIED FieldPolicy_Source = 0 // the caller's to fill
+	FieldPolicy_SOURCE_RUNNER      FieldPolicy_Source = 1 // filled by the dispatching runner; refused from anyone else
+)
+
+// Enum value maps for FieldPolicy_Source.
+var (
+	FieldPolicy_Source_name = map[int32]string{
+		0: "SOURCE_UNSPECIFIED",
+		1: "SOURCE_RUNNER",
+	}
+	FieldPolicy_Source_value = map[string]int32{
+		"SOURCE_UNSPECIFIED": 0,
+		"SOURCE_RUNNER":      1,
+	}
+)
+
+func (x FieldPolicy_Source) Enum() *FieldPolicy_Source {
+	p := new(FieldPolicy_Source)
+	*p = x
+	return p
+}
+
+func (x FieldPolicy_Source) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FieldPolicy_Source) Descriptor() protoreflect.EnumDescriptor {
+	return file_garm_tool_v1_tool_proto_enumTypes[5].Descriptor()
+}
+
+func (FieldPolicy_Source) Type() protoreflect.EnumType {
+	return &file_garm_tool_v1_tool_proto_enumTypes[5]
+}
+
+func (x FieldPolicy_Source) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FieldPolicy_Source.Descriptor instead.
+func (FieldPolicy_Source) EnumDescriptor() ([]byte, []int) {
+	return file_garm_tool_v1_tool_proto_rawDescGZIP(), []int{12, 0}
+}
+
 type Approval_Mode int32
 
 const (
@@ -337,11 +411,11 @@ func (x Approval_Mode) String() string {
 }
 
 func (Approval_Mode) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[5].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[6].Descriptor()
 }
 
 func (Approval_Mode) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[5]
+	return &file_garm_tool_v1_tool_proto_enumTypes[6]
 }
 
 func (x Approval_Mode) Number() protoreflect.EnumNumber {
@@ -386,11 +460,11 @@ func (x Audit_Level) String() string {
 }
 
 func (Audit_Level) Descriptor() protoreflect.EnumDescriptor {
-	return file_garm_tool_v1_tool_proto_enumTypes[6].Descriptor()
+	return file_garm_tool_v1_tool_proto_enumTypes[7].Descriptor()
 }
 
 func (Audit_Level) Type() protoreflect.EnumType {
-	return &file_garm_tool_v1_tool_proto_enumTypes[6]
+	return &file_garm_tool_v1_tool_proto_enumTypes[7]
 }
 
 func (x Audit_Level) Number() protoreflect.EnumNumber {
@@ -1113,12 +1187,16 @@ func (*Redaction_DateGrain) isRedaction_Kind() {}
 func (*Redaction_Custom) isRedaction_Kind() {}
 
 type FieldPolicy struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Read          Clearance              `protobuf:"varint,1,opt,name=read,proto3,enum=garm.tool.v1.Clearance" json:"read,omitempty"`
-	Write         Clearance              `protobuf:"varint,2,opt,name=write,proto3,enum=garm.tool.v1.Clearance" json:"write,omitempty"` // unset = same as read
-	Compartments  []string               `protobuf:"bytes,3,rep,name=compartments,proto3" json:"compartments,omitempty"`
-	OnDeny        *Redaction             `protobuf:"bytes,4,opt,name=on_deny,json=onDeny,proto3" json:"on_deny,omitempty"` // unset = omit
-	AuditOnRead   bool                   `protobuf:"varint,5,opt,name=audit_on_read,json=auditOnRead,proto3" json:"audit_on_read,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Read         Clearance              `protobuf:"varint,1,opt,name=read,proto3,enum=garm.tool.v1.Clearance" json:"read,omitempty"`
+	Write        Clearance              `protobuf:"varint,2,opt,name=write,proto3,enum=garm.tool.v1.Clearance" json:"write,omitempty"` // unset = same as read
+	Compartments []string               `protobuf:"bytes,3,rep,name=compartments,proto3" json:"compartments,omitempty"`
+	OnDeny       *Redaction             `protobuf:"bytes,4,opt,name=on_deny,json=onDeny,proto3" json:"on_deny,omitempty"` // unset = omit
+	AuditOnRead  bool                   `protobuf:"varint,5,opt,name=audit_on_read,json=auditOnRead,proto3" json:"audit_on_read,omitempty"`
+	// Meaningful on a field of a tool's REQUEST message only. On a message's
+	// default_field_policy it is refused by L34: a default applies to every
+	// field, and "every field is the runner's" is never what anyone meant.
+	Source        FieldPolicy_Source `protobuf:"varint,6,opt,name=source,proto3,enum=garm.tool.v1.FieldPolicy_Source" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1186,6 +1264,13 @@ func (x *FieldPolicy) GetAuditOnRead() bool {
 		return x.AuditOnRead
 	}
 	return false
+}
+
+func (x *FieldPolicy) GetSource() FieldPolicy_Source {
+	if x != nil {
+		return x.Source
+	}
+	return FieldPolicy_SOURCE_UNSPECIFIED
 }
 
 type Effects struct {
@@ -2134,13 +2219,17 @@ const file_garm_tool_v1_tool_proto_rawDesc = "" +
 	"date_grain\x18\n" +
 	" \x01(\v2\x17.garm.tool.v1.DateGrainH\x00R\tdateGrain\x12.\n" +
 	"\x06custom\x18\x0f \x01(\v2\x14.garm.tool.v1.CustomH\x00R\x06customB\x06\n" +
-	"\x04kind\"\xe3\x01\n" +
+	"\x04kind\"\xd2\x02\n" +
 	"\vFieldPolicy\x12+\n" +
 	"\x04read\x18\x01 \x01(\x0e2\x17.garm.tool.v1.ClearanceR\x04read\x12-\n" +
 	"\x05write\x18\x02 \x01(\x0e2\x17.garm.tool.v1.ClearanceR\x05write\x12\"\n" +
 	"\fcompartments\x18\x03 \x03(\tR\fcompartments\x120\n" +
 	"\aon_deny\x18\x04 \x01(\v2\x17.garm.tool.v1.RedactionR\x06onDeny\x12\"\n" +
-	"\raudit_on_read\x18\x05 \x01(\bR\vauditOnRead\"\xb5\x01\n" +
+	"\raudit_on_read\x18\x05 \x01(\bR\vauditOnRead\x128\n" +
+	"\x06source\x18\x06 \x01(\x0e2 .garm.tool.v1.FieldPolicy.SourceR\x06source\"3\n" +
+	"\x06Source\x12\x16\n" +
+	"\x12SOURCE_UNSPECIFIED\x10\x00\x12\x11\n" +
+	"\rSOURCE_RUNNER\x10\x01\"\xb5\x01\n" +
 	"\aEffects\x12\x1e\n" +
 	"\n" +
 	"idempotent\x18\x01 \x01(\bR\n" +
@@ -2264,7 +2353,7 @@ func file_garm_tool_v1_tool_proto_rawDescGZIP() []byte {
 	return file_garm_tool_v1_tool_proto_rawDescData
 }
 
-var file_garm_tool_v1_tool_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_garm_tool_v1_tool_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
 var file_garm_tool_v1_tool_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_garm_tool_v1_tool_proto_goTypes = []any{
 	(Clearance)(0),                      // 0: garm.tool.v1.Clearance
@@ -2272,83 +2361,85 @@ var file_garm_tool_v1_tool_proto_goTypes = []any{
 	(PrincipalKind)(0),                  // 2: garm.tool.v1.PrincipalKind
 	(Reversibility)(0),                  // 3: garm.tool.v1.Reversibility
 	(Grain)(0),                          // 4: garm.tool.v1.Grain
-	(Approval_Mode)(0),                  // 5: garm.tool.v1.Approval.Mode
-	(Audit_Level)(0),                    // 6: garm.tool.v1.Audit.Level
-	(*Omit)(nil),                        // 7: garm.tool.v1.Omit
-	(*Mask)(nil),                        // 8: garm.tool.v1.Mask
-	(*Hash)(nil),                        // 9: garm.tool.v1.Hash
-	(*EmailDomain)(nil),                 // 10: garm.tool.v1.EmailDomain
-	(*KeepLast)(nil),                    // 11: garm.tool.v1.KeepLast
-	(*Truncate)(nil),                    // 12: garm.tool.v1.Truncate
-	(*CardBinLast4)(nil),                // 13: garm.tool.v1.CardBinLast4
-	(*IpPrefix)(nil),                    // 14: garm.tool.v1.IpPrefix
-	(*UrlOrigin)(nil),                   // 15: garm.tool.v1.UrlOrigin
-	(*DateGrain)(nil),                   // 16: garm.tool.v1.DateGrain
-	(*Custom)(nil),                      // 17: garm.tool.v1.Custom
-	(*Redaction)(nil),                   // 18: garm.tool.v1.Redaction
-	(*FieldPolicy)(nil),                 // 19: garm.tool.v1.FieldPolicy
-	(*Effects)(nil),                     // 20: garm.tool.v1.Effects
-	(*Approval)(nil),                    // 21: garm.tool.v1.Approval
-	(*Example)(nil),                     // 22: garm.tool.v1.Example
-	(*Guidance)(nil),                    // 23: garm.tool.v1.Guidance
-	(*ListFilter)(nil),                  // 24: garm.tool.v1.ListFilter
-	(*Fga)(nil),                         // 25: garm.tool.v1.Fga
-	(*Authorization)(nil),               // 26: garm.tool.v1.Authorization
-	(*Audit)(nil),                       // 27: garm.tool.v1.Audit
-	(*ToolPolicy)(nil),                  // 28: garm.tool.v1.ToolPolicy
-	(*Decl)(nil),                        // 29: garm.tool.v1.Decl
-	(*DeclSet)(nil),                     // 30: garm.tool.v1.DeclSet
-	(*descriptorpb.FieldOptions)(nil),   // 31: google.protobuf.FieldOptions
-	(*descriptorpb.MethodOptions)(nil),  // 32: google.protobuf.MethodOptions
-	(*descriptorpb.MessageOptions)(nil), // 33: google.protobuf.MessageOptions
-	(*descriptorpb.FileOptions)(nil),    // 34: google.protobuf.FileOptions
+	(FieldPolicy_Source)(0),             // 5: garm.tool.v1.FieldPolicy.Source
+	(Approval_Mode)(0),                  // 6: garm.tool.v1.Approval.Mode
+	(Audit_Level)(0),                    // 7: garm.tool.v1.Audit.Level
+	(*Omit)(nil),                        // 8: garm.tool.v1.Omit
+	(*Mask)(nil),                        // 9: garm.tool.v1.Mask
+	(*Hash)(nil),                        // 10: garm.tool.v1.Hash
+	(*EmailDomain)(nil),                 // 11: garm.tool.v1.EmailDomain
+	(*KeepLast)(nil),                    // 12: garm.tool.v1.KeepLast
+	(*Truncate)(nil),                    // 13: garm.tool.v1.Truncate
+	(*CardBinLast4)(nil),                // 14: garm.tool.v1.CardBinLast4
+	(*IpPrefix)(nil),                    // 15: garm.tool.v1.IpPrefix
+	(*UrlOrigin)(nil),                   // 16: garm.tool.v1.UrlOrigin
+	(*DateGrain)(nil),                   // 17: garm.tool.v1.DateGrain
+	(*Custom)(nil),                      // 18: garm.tool.v1.Custom
+	(*Redaction)(nil),                   // 19: garm.tool.v1.Redaction
+	(*FieldPolicy)(nil),                 // 20: garm.tool.v1.FieldPolicy
+	(*Effects)(nil),                     // 21: garm.tool.v1.Effects
+	(*Approval)(nil),                    // 22: garm.tool.v1.Approval
+	(*Example)(nil),                     // 23: garm.tool.v1.Example
+	(*Guidance)(nil),                    // 24: garm.tool.v1.Guidance
+	(*ListFilter)(nil),                  // 25: garm.tool.v1.ListFilter
+	(*Fga)(nil),                         // 26: garm.tool.v1.Fga
+	(*Authorization)(nil),               // 27: garm.tool.v1.Authorization
+	(*Audit)(nil),                       // 28: garm.tool.v1.Audit
+	(*ToolPolicy)(nil),                  // 29: garm.tool.v1.ToolPolicy
+	(*Decl)(nil),                        // 30: garm.tool.v1.Decl
+	(*DeclSet)(nil),                     // 31: garm.tool.v1.DeclSet
+	(*descriptorpb.FieldOptions)(nil),   // 32: google.protobuf.FieldOptions
+	(*descriptorpb.MethodOptions)(nil),  // 33: google.protobuf.MethodOptions
+	(*descriptorpb.MessageOptions)(nil), // 34: google.protobuf.MessageOptions
+	(*descriptorpb.FileOptions)(nil),    // 35: google.protobuf.FileOptions
 }
 var file_garm_tool_v1_tool_proto_depIdxs = []int32{
 	4,  // 0: garm.tool.v1.DateGrain.grain:type_name -> garm.tool.v1.Grain
-	7,  // 1: garm.tool.v1.Redaction.omit:type_name -> garm.tool.v1.Omit
-	8,  // 2: garm.tool.v1.Redaction.mask:type_name -> garm.tool.v1.Mask
-	9,  // 3: garm.tool.v1.Redaction.hash:type_name -> garm.tool.v1.Hash
-	10, // 4: garm.tool.v1.Redaction.email_domain:type_name -> garm.tool.v1.EmailDomain
-	11, // 5: garm.tool.v1.Redaction.keep_last:type_name -> garm.tool.v1.KeepLast
-	12, // 6: garm.tool.v1.Redaction.truncate:type_name -> garm.tool.v1.Truncate
-	13, // 7: garm.tool.v1.Redaction.card_bin_last4:type_name -> garm.tool.v1.CardBinLast4
-	14, // 8: garm.tool.v1.Redaction.ip_prefix:type_name -> garm.tool.v1.IpPrefix
-	15, // 9: garm.tool.v1.Redaction.url_origin:type_name -> garm.tool.v1.UrlOrigin
-	16, // 10: garm.tool.v1.Redaction.date_grain:type_name -> garm.tool.v1.DateGrain
-	17, // 11: garm.tool.v1.Redaction.custom:type_name -> garm.tool.v1.Custom
+	8,  // 1: garm.tool.v1.Redaction.omit:type_name -> garm.tool.v1.Omit
+	9,  // 2: garm.tool.v1.Redaction.mask:type_name -> garm.tool.v1.Mask
+	10, // 3: garm.tool.v1.Redaction.hash:type_name -> garm.tool.v1.Hash
+	11, // 4: garm.tool.v1.Redaction.email_domain:type_name -> garm.tool.v1.EmailDomain
+	12, // 5: garm.tool.v1.Redaction.keep_last:type_name -> garm.tool.v1.KeepLast
+	13, // 6: garm.tool.v1.Redaction.truncate:type_name -> garm.tool.v1.Truncate
+	14, // 7: garm.tool.v1.Redaction.card_bin_last4:type_name -> garm.tool.v1.CardBinLast4
+	15, // 8: garm.tool.v1.Redaction.ip_prefix:type_name -> garm.tool.v1.IpPrefix
+	16, // 9: garm.tool.v1.Redaction.url_origin:type_name -> garm.tool.v1.UrlOrigin
+	17, // 10: garm.tool.v1.Redaction.date_grain:type_name -> garm.tool.v1.DateGrain
+	18, // 11: garm.tool.v1.Redaction.custom:type_name -> garm.tool.v1.Custom
 	0,  // 12: garm.tool.v1.FieldPolicy.read:type_name -> garm.tool.v1.Clearance
 	0,  // 13: garm.tool.v1.FieldPolicy.write:type_name -> garm.tool.v1.Clearance
-	18, // 14: garm.tool.v1.FieldPolicy.on_deny:type_name -> garm.tool.v1.Redaction
-	3,  // 15: garm.tool.v1.Effects.reversibility:type_name -> garm.tool.v1.Reversibility
-	5,  // 16: garm.tool.v1.Approval.mode:type_name -> garm.tool.v1.Approval.Mode
-	0,  // 17: garm.tool.v1.Approval.approver_min_clearance:type_name -> garm.tool.v1.Clearance
-	22, // 18: garm.tool.v1.Guidance.examples:type_name -> garm.tool.v1.Example
-	24, // 19: garm.tool.v1.Fga.filter_response:type_name -> garm.tool.v1.ListFilter
-	25, // 20: garm.tool.v1.Authorization.fga:type_name -> garm.tool.v1.Fga
-	6,  // 21: garm.tool.v1.Audit.level:type_name -> garm.tool.v1.Audit.Level
-	1,  // 22: garm.tool.v1.ToolPolicy.verb:type_name -> garm.tool.v1.Verb
-	0,  // 23: garm.tool.v1.ToolPolicy.min_clearance:type_name -> garm.tool.v1.Clearance
-	20, // 24: garm.tool.v1.ToolPolicy.effects:type_name -> garm.tool.v1.Effects
-	21, // 25: garm.tool.v1.ToolPolicy.approval:type_name -> garm.tool.v1.Approval
-	23, // 26: garm.tool.v1.ToolPolicy.guidance:type_name -> garm.tool.v1.Guidance
-	26, // 27: garm.tool.v1.ToolPolicy.authorization:type_name -> garm.tool.v1.Authorization
-	27, // 28: garm.tool.v1.ToolPolicy.audit:type_name -> garm.tool.v1.Audit
-	29, // 29: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.v1.Decl
-	31, // 30: garm.tool.v1.field_policy:extendee -> google.protobuf.FieldOptions
-	32, // 31: garm.tool.v1.tool:extendee -> google.protobuf.MethodOptions
-	33, // 32: garm.tool.v1.default_field_policy:extendee -> google.protobuf.MessageOptions
-	34, // 33: garm.tool.v1.compartments:extendee -> google.protobuf.FileOptions
-	34, // 34: garm.tool.v1.tool_sets:extendee -> google.protobuf.FileOptions
-	19, // 35: garm.tool.v1.field_policy:type_name -> garm.tool.v1.FieldPolicy
-	28, // 36: garm.tool.v1.tool:type_name -> garm.tool.v1.ToolPolicy
-	19, // 37: garm.tool.v1.default_field_policy:type_name -> garm.tool.v1.FieldPolicy
-	30, // 38: garm.tool.v1.compartments:type_name -> garm.tool.v1.DeclSet
-	30, // 39: garm.tool.v1.tool_sets:type_name -> garm.tool.v1.DeclSet
-	40, // [40:40] is the sub-list for method output_type
-	40, // [40:40] is the sub-list for method input_type
-	35, // [35:40] is the sub-list for extension type_name
-	30, // [30:35] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	19, // 14: garm.tool.v1.FieldPolicy.on_deny:type_name -> garm.tool.v1.Redaction
+	5,  // 15: garm.tool.v1.FieldPolicy.source:type_name -> garm.tool.v1.FieldPolicy.Source
+	3,  // 16: garm.tool.v1.Effects.reversibility:type_name -> garm.tool.v1.Reversibility
+	6,  // 17: garm.tool.v1.Approval.mode:type_name -> garm.tool.v1.Approval.Mode
+	0,  // 18: garm.tool.v1.Approval.approver_min_clearance:type_name -> garm.tool.v1.Clearance
+	23, // 19: garm.tool.v1.Guidance.examples:type_name -> garm.tool.v1.Example
+	25, // 20: garm.tool.v1.Fga.filter_response:type_name -> garm.tool.v1.ListFilter
+	26, // 21: garm.tool.v1.Authorization.fga:type_name -> garm.tool.v1.Fga
+	7,  // 22: garm.tool.v1.Audit.level:type_name -> garm.tool.v1.Audit.Level
+	1,  // 23: garm.tool.v1.ToolPolicy.verb:type_name -> garm.tool.v1.Verb
+	0,  // 24: garm.tool.v1.ToolPolicy.min_clearance:type_name -> garm.tool.v1.Clearance
+	21, // 25: garm.tool.v1.ToolPolicy.effects:type_name -> garm.tool.v1.Effects
+	22, // 26: garm.tool.v1.ToolPolicy.approval:type_name -> garm.tool.v1.Approval
+	24, // 27: garm.tool.v1.ToolPolicy.guidance:type_name -> garm.tool.v1.Guidance
+	27, // 28: garm.tool.v1.ToolPolicy.authorization:type_name -> garm.tool.v1.Authorization
+	28, // 29: garm.tool.v1.ToolPolicy.audit:type_name -> garm.tool.v1.Audit
+	30, // 30: garm.tool.v1.DeclSet.declared:type_name -> garm.tool.v1.Decl
+	32, // 31: garm.tool.v1.field_policy:extendee -> google.protobuf.FieldOptions
+	33, // 32: garm.tool.v1.tool:extendee -> google.protobuf.MethodOptions
+	34, // 33: garm.tool.v1.default_field_policy:extendee -> google.protobuf.MessageOptions
+	35, // 34: garm.tool.v1.compartments:extendee -> google.protobuf.FileOptions
+	35, // 35: garm.tool.v1.tool_sets:extendee -> google.protobuf.FileOptions
+	20, // 36: garm.tool.v1.field_policy:type_name -> garm.tool.v1.FieldPolicy
+	29, // 37: garm.tool.v1.tool:type_name -> garm.tool.v1.ToolPolicy
+	20, // 38: garm.tool.v1.default_field_policy:type_name -> garm.tool.v1.FieldPolicy
+	31, // 39: garm.tool.v1.compartments:type_name -> garm.tool.v1.DeclSet
+	31, // 40: garm.tool.v1.tool_sets:type_name -> garm.tool.v1.DeclSet
+	41, // [41:41] is the sub-list for method output_type
+	41, // [41:41] is the sub-list for method input_type
+	36, // [36:41] is the sub-list for extension type_name
+	31, // [31:36] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_garm_tool_v1_tool_proto_init() }
@@ -2382,7 +2473,7 @@ func file_garm_tool_v1_tool_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_garm_tool_v1_tool_proto_rawDesc), len(file_garm_tool_v1_tool_proto_rawDesc)),
-			NumEnums:      7,
+			NumEnums:      8,
 			NumMessages:   24,
 			NumExtensions: 5,
 			NumServices:   0,
