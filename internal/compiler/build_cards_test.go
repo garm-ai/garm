@@ -334,3 +334,39 @@ func dynamicResponse(t *testing.T, md protoreflect.MethodDescriptor, values map[
 	}
 	return msg
 }
+
+// A ref names a card AND whose endpoint serves it.
+//
+// A kind and an id say which card; they do not say whose ResultCard or
+// ApprovalCard to call for it. A client that started a run itself knows the
+// answer and a client that reached the same run from a task does not — which
+// is the hole that left one page unable to show itself. The constructor
+// refuses a ref without it rather than letting it render fine and fail on a
+// route nobody pictured.
+func TestARefCarriesTheToolThatServesIt(t *testing.T) {
+	md := payMethod(t)
+
+	if got := cards.ToolFQN(md); got != "fx.cards.initiate_payment" {
+		t.Errorf("ToolFQN = %q, want the package-qualified tool name", got)
+	}
+	// And a card's own FQN, which is what a ref pointing AT it must carry.
+	for _, s := range cards.Synthesise(md) {
+		if s.Kind == cards.Approval && s.FQN() != "fx.cards.initiate_payment_approval_card" {
+			t.Errorf("the approval card's FQN is %q", s.FQN())
+		}
+	}
+
+	ref, err := cards.Ref(cardv1.Kind_RUN, "run_7", "The run", cardv1.State_RUNNING,
+		"bank.agents.v1.assistant_result_card")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.GetToolFqn() != "bank.agents.v1.assistant_result_card" {
+		t.Errorf("tool_fqn = %q", ref.GetToolFqn())
+	}
+
+	if _, err := cards.Ref(cardv1.Kind_RUN, "run_7", "The run", cardv1.State_RUNNING, ""); err == nil {
+		t.Fatal("a ref with no tool was built; it would render fine and fail on the one " +
+			"route its author did not picture")
+	}
+}

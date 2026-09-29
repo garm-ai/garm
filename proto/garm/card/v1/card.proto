@@ -104,7 +104,22 @@ message Card {
 enum Kind  { KIND_UNSPECIFIED = 0; START = 1; TASK = 2; RUN = 3; ASK = 4; }
 enum State { STATE_UNSPECIFIED = 0; OPEN = 1; ANSWERED = 2; EXPIRED = 3; RUNNING = 4; COMPLETED = 5; FAILED = 6; }
 
-message CardRef { Kind kind = 1; string subject_id = 2; string title = 3; State state = 4; }
+// A pointer to another card: a task card at its run, a run card at its tasks.
+//
+// `tool_fqn` is what makes a ref SELF-ADDRESSING, and it is the field that
+// was missing. A kind and an id say which card; they do not say whose
+// ResultCard or ApprovalCard to call for it, and a client that started a run
+// itself knows the answer while a client that reached the same run from a
+// task does not. Without it one page could not show itself. With it, any ref
+// is enough to fetch the card it names — no second lookup, and no table of
+// the client's own that would go stale the moment a tool moved service.
+message CardRef {
+  Kind   kind       = 1;
+  string subject_id = 2;
+  string title      = 3;
+  State  state      = 4;
+  string tool_fqn   = 5;   // the tool whose service serves the card this names
+}
 
 message Element {
   oneof of {

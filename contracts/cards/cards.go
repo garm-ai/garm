@@ -122,6 +122,12 @@ type Synth struct {
 // ToolName is the name this card carries in the catalogue, unqualified.
 func (s Synth) ToolName() string { return s.Policy.GetName() }
 
+// FQN is the name this card carries in the catalogue, qualified by its proto
+// package — the value a CardRef pointing at this card must carry.
+func (s Synth) FQN() string {
+	return string(s.Parent.ParentFile().Package()) + "." + s.ToolName()
+}
+
 // Synthesise returns the card endpoints for one tool.
 //
 // The design writes this as `Synthesise(method)`, and it is a method rather

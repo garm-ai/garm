@@ -293,6 +293,14 @@ per-field policy inside a card would be a second mechanism answering the same
 question differently. `CallRef` and `TaskRef` are ordinary request messages and
 are classified field by field like anything else.
 
+A card's `refs` point at other cards — a task card at its run, a run card at
+its tasks — and each `CardRef` carries `tool_fqn`, the tool whose service
+serves the card it names. A kind and an id say *which* card; they do not say
+whose `ResultCard` or `ApprovalCard` to call for it, and a client that started
+a run itself knows the answer while one that reached the same run from a task
+does not. With `tool_fqn` any ref is enough to fetch what it names, and a
+client needs no table of its own. `cards.Ref` refuses to build one without it.
+
 Two refs address the two things a card can be about: `CallRef{call_id}` is the
 daemon's call id — the one id every tool sees and every ledger row carries —
 and `TaskRef{task_id, material}` names an open task and carries the material

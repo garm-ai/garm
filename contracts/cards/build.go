@@ -586,6 +586,45 @@ func titleOf(md protoreflect.MethodDescriptor, pol *toolv1.ToolPolicy) string {
 	return humanise(string(md.Name()))
 }
 
+// ToolFQN is the catalogue name of the tool a method declares: the proto
+// package, a dot, and the resolved tool name.
+//
+// Exported because it is what a CardRef has to carry. A ref names a card by
+// kind and id, and a client that has only those cannot fetch it — it does not
+// know whose ResultCard or ApprovalCard to call. This is that answer, derived
+// from the contract rather than kept in a table on the client that would go
+// stale the moment a tool moved service.
+func ToolFQN(md protoreflect.MethodDescriptor) string {
+	return toolFQN(md, policyOf(md))
+}
+
+// Ref builds a pointer from one card to another.
+//
+// It takes the tool FQN as a parameter rather than letting a caller leave it
+// out, because "a ref with no tool" is exactly the hole this constructor
+// exists to close: it is not detectable at build time, it renders fine, and
+// it fails when somebody reaches that card by a route the author did not
+// picture. A ref with an empty FQN is refused here rather than served.
+//
+// An agent's run card refs its tasks with the TASKS tool's FQN; a task card
+// refs its run with the AGENT's. In both cases the FQN is the one whose
+// service serves the card being pointed AT, never the one doing the pointing.
+func Ref(kind cardv1.Kind, subjectID, title string, state cardv1.State, toolFQN string) (*cardv1.CardRef, error) {
+	if toolFQN == "" {
+		return nil, errors.New("a CardRef needs the fully-qualified name of the tool whose " +
+			"service serves the card it names: a kind and an id say WHICH card, not whose " +
+			"endpoint to fetch it from, and a client that reached this card by an " +
+			"unexpected route has nothing else to go on")
+	}
+	return &cardv1.CardRef{
+		Kind:      kind,
+		SubjectId: subjectID,
+		Title:     title,
+		State:     state,
+		ToolFqn:   toolFQN,
+	}, nil
+}
+
 func toolFQN(md protoreflect.MethodDescriptor, pol *toolv1.ToolPolicy) string {
 	name := pol.GetName()
 	if name == "" {

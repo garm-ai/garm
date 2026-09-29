@@ -617,12 +617,22 @@ func (x *Card) GetAccess() *Label {
 	return nil
 }
 
+// A pointer to another card: a task card at its run, a run card at its tasks.
+//
+// `tool_fqn` is what makes a ref SELF-ADDRESSING, and it is the field that
+// was missing. A kind and an id say which card; they do not say whose
+// ResultCard or ApprovalCard to call for it, and a client that started a run
+// itself knows the answer while a client that reached the same run from a
+// task does not. Without it one page could not show itself. With it, any ref
+// is enough to fetch the card it names — no second lookup, and no table of
+// the client's own that would go stale the moment a tool moved service.
 type CardRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          Kind                   `protobuf:"varint,1,opt,name=kind,proto3,enum=garm.card.v1.Kind" json:"kind,omitempty"`
 	SubjectId     string                 `protobuf:"bytes,2,opt,name=subject_id,json=subjectId,proto3" json:"subject_id,omitempty"`
 	Title         string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	State         State                  `protobuf:"varint,4,opt,name=state,proto3,enum=garm.card.v1.State" json:"state,omitempty"`
+	ToolFqn       string                 `protobuf:"bytes,5,opt,name=tool_fqn,json=toolFqn,proto3" json:"tool_fqn,omitempty"` // the tool whose service serves the card this names
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -683,6 +693,13 @@ func (x *CardRef) GetState() State {
 		return x.State
 	}
 	return State_STATE_UNSPECIFIED
+}
+
+func (x *CardRef) GetToolFqn() string {
+	if x != nil {
+		return x.ToolFqn
+	}
+	return ""
 }
 
 type Element struct {
@@ -2211,13 +2228,14 @@ const file_garm_card_v1_card_proto_rawDesc = "" +
 	"\x04refs\x18\b \x03(\v2\x15.garm.card.v1.CardRefR\x04refs\x12)\n" +
 	"\x10catalogue_digest\x18\t \x01(\tR\x0fcatalogueDigest\x12+\n" +
 	"\x06access\x18\n" +
-	" \x01(\v2\x13.garm.card.v1.LabelR\x06access\"\x91\x01\n" +
+	" \x01(\v2\x13.garm.card.v1.LabelR\x06access\"\xac\x01\n" +
 	"\aCardRef\x12&\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x12.garm.card.v1.KindR\x04kind\x12\x1d\n" +
 	"\n" +
 	"subject_id\x18\x02 \x01(\tR\tsubjectId\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12)\n" +
-	"\x05state\x18\x04 \x01(\x0e2\x13.garm.card.v1.StateR\x05state\"\xa8\x02\n" +
+	"\x05state\x18\x04 \x01(\x0e2\x13.garm.card.v1.StateR\x05state\x12\x19\n" +
+	"\btool_fqn\x18\x05 \x01(\tR\atoolFqn\"\xa8\x02\n" +
 	"\aElement\x12(\n" +
 	"\x04text\x18\x01 \x01(\v2\x12.garm.card.v1.TextH\x00R\x04text\x12-\n" +
 	"\x05facts\x18\x02 \x01(\v2\x15.garm.card.v1.FactSetH\x00R\x05facts\x121\n" +
