@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 
-	"github.com/garm-ai/garm/contracts/cards"
+	"github.com/garm-ai/contracts/cards"
 )
 
 // The generated card defaults.
@@ -31,8 +31,8 @@ import (
 // to reproduce exactly; the full name of a service is in the contract.
 
 const (
-	cardsPkg         = protogen.GoImportPath("github.com/garm-ai/garm/contracts/cards")
-	cardv1Pkg        = protogen.GoImportPath("github.com/garm-ai/garm/contracts/garm/card/v1")
+	cardsPkg         = protogen.GoImportPath("github.com/garm-ai/contracts/cards")
+	cardv1Pkg        = protogen.GoImportPath("github.com/garm-ai/contracts/garm/card/v1")
 	emptypbPkg       = protogen.GoImportPath("google.golang.org/protobuf/types/known/emptypb")
 	protoreflectPkg  = protogen.GoImportPath("google.golang.org/protobuf/reflect/protoreflect")
 	protoregistryPkg = protogen.GoImportPath("google.golang.org/protobuf/reflect/protoregistry")

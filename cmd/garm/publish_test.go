@@ -14,7 +14,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
 	"github.com/garm-ai/garm/internal/compile"
 )
 

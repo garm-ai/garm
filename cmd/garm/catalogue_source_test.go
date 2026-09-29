@@ -12,9 +12,9 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	garm "github.com/garm-ai/garm"
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts"
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // FieldPolicy.source is additive: a catalogue that carries it still stamps
@@ -74,8 +74,8 @@ service Payments {
 		t.Fatalf("annotation_schema_version = %d; a catalogue carrying source: SOURCE_RUNNER "+
 			"must still stamp v1 or garmd v0.2.0 refuses it at boot", got)
 	}
-	if garm.AnnotationSchemaVersion != 1 {
-		t.Fatalf("AnnotationSchemaVersion = %d; this release must not move it", garm.AnnotationSchemaVersion)
+	if contracts.AnnotationSchemaVersion != 1 {
+		t.Fatalf("AnnotationSchemaVersion = %d; this release must not move it", contracts.AnnotationSchemaVersion)
 	}
 
 	// The set resolves the way garmd's Load resolves it, before it reads a

@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	garm "github.com/garm-ai/garm"
-	cardv1 "github.com/garm-ai/garm/contracts/garm/card/v1"
+	"github.com/garm-ai/contracts"
+	cardv1 "github.com/garm-ai/contracts/garm/card/v1"
 )
 
 // The card vocabulary gained labels and refs in v0.17.0 (cards-and-tasks
@@ -64,8 +64,8 @@ func TestCardVocabularyIsAdditive(t *testing.T) {
 	// The daemon reads garm.tool.v1 and nothing else. A label is read by
 	// garmd at step 8, but it is read off the VALUE of a well-known type,
 	// not off an annotation, so the annotation schema is untouched.
-	if garm.AnnotationSchemaVersion != 1 {
+	if contracts.AnnotationSchemaVersion != 1 {
 		t.Errorf("AnnotationSchemaVersion = %d, want 1: adding to garm.card.v1 must not move "+
-			"the number a daemon refuses a catalogue by", garm.AnnotationSchemaVersion)
+			"the number a daemon refuses a catalogue by", contracts.AnnotationSchemaVersion)
 	}
 }

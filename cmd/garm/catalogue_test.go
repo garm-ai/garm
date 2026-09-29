@@ -12,9 +12,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
-	garm "github.com/garm-ai/garm"
-	"github.com/garm-ai/garm/contracts/cards"
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	"github.com/garm-ai/contracts"
+	"github.com/garm-ai/contracts/cards"
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
 	"github.com/garm-ai/garm/internal/compiler"
 )
 
@@ -434,9 +434,9 @@ service Payments {
 	if err := proto.Unmarshal(build(t, dir, filepath.Join(t.TempDir(), "c.binpb")), &cat); err != nil {
 		t.Fatal(err)
 	}
-	if got := cat.GetAnnotationSchemaVersion(); got != garm.AnnotationSchemaVersion {
+	if got := cat.GetAnnotationSchemaVersion(); got != contracts.AnnotationSchemaVersion {
 		t.Errorf("annotation_schema_version = %d, want %d: the version is garm.tool.v1's and "+
-			"an agent, a card template or an owner must not move it", got, garm.AnnotationSchemaVersion)
+			"an agent, a card template or an owner must not move it", got, contracts.AnnotationSchemaVersion)
 	}
 	// And the artifact is self-contained: a runner resolving the templates
 	// and owners it reads finds the files that define them in the catalogue,

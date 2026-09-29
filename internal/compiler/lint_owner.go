@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	metav1 "github.com/garm-ai/garm/contracts/garm/meta/v1"
+	metav1 "github.com/garm-ai/contracts/garm/meta/v1"
 )
 
 // Rule O1 — every tool service and every agent names its owner (studio cards

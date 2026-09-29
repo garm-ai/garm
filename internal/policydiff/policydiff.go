@@ -26,9 +26,9 @@ import (
 	"sort"
 	"strings"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 	"github.com/garm-ai/garm/internal/compiler"
-	"github.com/garm-ai/garm/policy"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 

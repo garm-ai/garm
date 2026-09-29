@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	cardv1 "github.com/garm-ai/garm/contracts/garm/card/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	cardv1 "github.com/garm-ai/contracts/garm/card/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // Rule C8 — a child may not be labelled below its Section.

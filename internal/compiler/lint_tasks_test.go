@@ -1,21 +1,30 @@
 package compiler_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/garm-ai/garm/internal/compile"
 	"github.com/garm-ai/garm/internal/compiler"
+	"github.com/garm-ai/garm/internal/contractsrepo"
 )
 
-// garm.tasks.v1 is a contract this repository publishes and another
+// garm.tasks.v1 is a contract garm-ai/contracts publishes and another
 // repository serves, so it is held to the rules every other tool declaration
-// is held to. A platform contract that could not pass its own linter would be
-// the clearest possible signal that the linter is wrong about something.
+// is held to. A platform contract that could not pass this linter would be the
+// clearest possible signal that the linter is wrong about something.
+//
+// The protos used to be here and are not: they went with the contract, and
+// this repository depends on the module rather than holding it. A descriptor
+// linked from that module would not do — lint reads proto SOURCE for the
+// comments a field's documentation comes from — so the check reads a checkout.
+// See internal/contractsrepo for what happens when there is none.
 func TestTheTasksContractLints(t *testing.T) {
-	_, fds, err := compile.Tree(t.Context(), "../../proto")
+	root := filepath.Join(contractsrepo.Require(t), "proto")
+	_, fds, err := compile.Tree(t.Context(), root)
 	if err != nil {
-		t.Fatalf("compiling garm's own proto tree: %v", err)
+		t.Fatalf("compiling the contract's proto tree at %s: %v", root, err)
 	}
 
 	var bad []string
@@ -26,7 +35,7 @@ func TestTheTasksContractLints(t *testing.T) {
 		bad = append(bad, d.String())
 	}
 	if len(bad) > 0 {
-		t.Fatalf("garm's own proto tree does not lint:\n%s", strings.Join(bad, "\n"))
+		t.Fatalf("the contract's proto tree does not lint:\n%s", strings.Join(bad, "\n"))
 	}
 
 	// And the tools are the eight the design names, at the audiences it

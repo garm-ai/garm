@@ -13,8 +13,8 @@ import (
 	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
-	"github.com/garm-ai/garm/policy"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 )
 
 // Rules A1-A5 — the agent manifest (design §2.2, program plan §3.2).

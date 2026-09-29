@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/internal/compile"
 )
 
@@ -153,7 +153,7 @@ func TestTheLinkedAnnotationsBeatAVendoredCopy(t *testing.T) {
 	const stale = `syntax = "proto3";
 package garm.tool.v1;
 import "google/protobuf/descriptor.proto";
-option go_package = "github.com/garm-ai/garm/contracts/garm/tool/v1;toolv1";
+option go_package = "github.com/garm-ai/contracts/garm/tool/v1;toolv1";
 message ToolPolicy { string name = 1; }
 extend google.protobuf.MethodOptions { ToolPolicy tool = 50002; }
 `

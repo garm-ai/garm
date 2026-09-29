@@ -9,8 +9,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	cardv1 "github.com/garm-ai/garm/contracts/garm/card/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	cardv1 "github.com/garm-ai/contracts/garm/card/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // Rule C1 — a card template references only what will be there to render

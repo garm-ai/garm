@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/garm-ai/garm/contracts/cards"
+	"github.com/garm-ai/contracts/cards"
 )
 
 // synthesiseCards adds every tool's card endpoints to the descriptor set a

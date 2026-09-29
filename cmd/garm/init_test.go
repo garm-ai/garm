@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	garm "github.com/garm-ai/garm"
+	"github.com/garm-ai/contracts"
 )
 
 // The annotations are vendored verbatim so that checking for drift later is a
@@ -24,10 +24,10 @@ func TestInitVendorsEveryAnnotationFileVerbatim(t *testing.T) {
 		t.Fatalf("init: %v", err)
 	}
 	for path, want := range map[string][]byte{
-		garm.VendoredAnnotationsPath:      garm.AnnotationsProto,
-		garm.VendoredAgentAnnotationsPath: garm.AgentAnnotationsProto,
-		garm.VendoredCardAnnotationsPath:  garm.CardAnnotationsProto,
-		garm.VendoredMetaAnnotationsPath:  garm.MetaAnnotationsProto,
+		contracts.VendoredAnnotationsPath:      contracts.AnnotationsProto,
+		contracts.VendoredAgentAnnotationsPath: contracts.AgentAnnotationsProto,
+		contracts.VendoredCardAnnotationsPath:  contracts.CardAnnotationsProto,
+		contracts.VendoredMetaAnnotationsPath:  contracts.MetaAnnotationsProto,
 	} {
 		got, err := os.ReadFile(filepath.Join(dir, path))
 		if err != nil {
@@ -45,9 +45,9 @@ func TestInitVendorsEveryAnnotationFileVerbatim(t *testing.T) {
 // and so do the card and owner annotations beside it.
 func TestTheVendoredPathsAreUnderThirdPartyProto(t *testing.T) {
 	for name, tc := range map[string]struct{ got, want string }{
-		"agent": {garm.VendoredAgentAnnotationsPath, "third_party/proto/garm/agent/v1/agent.proto"},
-		"card":  {garm.VendoredCardAnnotationsPath, "third_party/proto/garm/card/v1/card.proto"},
-		"meta":  {garm.VendoredMetaAnnotationsPath, "third_party/proto/garm/meta/v1/meta.proto"},
+		"agent": {contracts.VendoredAgentAnnotationsPath, "third_party/proto/garm/agent/v1/agent.proto"},
+		"card":  {contracts.VendoredCardAnnotationsPath, "third_party/proto/garm/card/v1/card.proto"},
+		"meta":  {contracts.VendoredMetaAnnotationsPath, "third_party/proto/garm/meta/v1/meta.proto"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s: vendored path = %q, want %q; the tail is what an import "+

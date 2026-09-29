@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	agentv1 "github.com/garm-ai/garm/contracts/garm/agent/v1"
+	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
 )
 
 // Agent is one proto service carrying (garm.agent.v1.agent).

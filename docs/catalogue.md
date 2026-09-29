@@ -363,7 +363,7 @@ the tool's own clearance, through the same ten steps and into the same ledger.
 
 **The author writes no proto.** `garm catalogue build` adds them to the
 descriptor set, and `protoc-gen-garm-go` adds the Go for them, and both call
-one function — `contracts/cards.Synthesise`. That sharing is the point and not
+one function — the contract module's `cards.Synthesise`. That sharing is the point and not
 an optimisation: the catalogue is what the daemon routes by and the binding is
 what the service registers, so if the two derived these names separately the
 first mismatch would be a card the daemon dispatches and the service does not
@@ -408,8 +408,9 @@ what an override looks like:
 | result | `ResultCard(ctx, ref, resp)` — a fact per scalar of the response, in declaration order, `Fact.field` set | each fact at its field's **read** policy, joined with the endpoint's |
 | approval | `Approval.material_fields`, valued from `TaskRef.material`, plus the owner and the declared `task_card` template | each fact at its field's read policy **joined with** the tool's `approver_min_clearance` and `approver_compartments` |
 
-The card construction is not generated code: it lives in `contracts/cards` as
-runtime functions over the method descriptor, and the generated default is a
+The card construction is not generated code: it lives in the contract module's
+`cards` package (`github.com/garm-ai/contracts/cards`) as runtime functions
+over the method descriptor, and the generated default is a
 three-line wrapper around one. Generating the construction would put hundreds
 of lines of literal-building into every tool module and make a change to the
 layout a regeneration of every repository that has one.
@@ -508,10 +509,10 @@ catalogue at boot over an annotation the daemon is about to learn anyway.
 
 ### The tasks contract
 
-`proto/garm/tasks/v1/tasks.proto` is the first SERVICE this repository
-declares rather than a vocabulary. Nothing here serves it — `tasksd` does, in
-its own repository — and garm publishes it for the reason it publishes the
-annotations: the thing that serves it and the things that call it cannot drift
+`garm.tasks.v1` is the first SERVICE the contract declares rather than a
+vocabulary. It lives with the annotations in `garm-ai/contracts`, not here, and
+nothing in either repository serves it — `tasksd` does, in its own. The
+contract carries it for the reason it carries the annotations: the thing that serves it and the things that call it cannot drift
 apart, and a catalogue carrying it is built by the same compiler as every
 other tool.
 
@@ -548,8 +549,8 @@ carries `act`. That last refusal is made in three places — the STS will not
 mint from a delegated token, the service refuses one, and the daemon will not
 verify one — so the rule survives any one of them being wrong.
 
-`buf.yaml` excuses the file from four lint rules, and both excuses are design
-decisions rather than conveniences. The enum spellings (`"state": "CLAIMED"`)
+The contract's own `buf.yaml` excuses the file from four lint rules, and both
+excuses are design decisions rather than conveniences. The enum spellings (`"state": "CLAIMED"`)
 are the contract with a renderer, as `garm.card.v1`'s are. And
 `garm.card.v1.TaskRef` is deliberately the request of four methods: a client
 builds one ref for a task and uses it at every endpoint, including the target

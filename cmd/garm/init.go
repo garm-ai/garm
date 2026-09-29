@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	garm "github.com/garm-ai/garm"
+	"github.com/garm-ai/contracts"
 )
 
 const bufYAML = `version: v2
@@ -22,7 +22,7 @@ modules:
   # "garm/tool/v1/tool.proto" — while staying OUT of what is generated. Every
   # module in a buf v2 workspace is an input, so annotations living under
   # proto/ would have Go generated for them; that output is never usable,
-  # because the real one already exists in github.com/garm-ai/garm/contracts
+  # because the real one already exists in github.com/garm-ai/contracts
   # and two packages registering one proto file panic at init.
   #
   # BASIC lint because the rules meant for a contract you publish have no
@@ -109,10 +109,10 @@ func runInit(cmd *cobra.Command, dir string, force bool) error {
 		path string
 		body []byte
 	}{
-		{garm.VendoredAnnotationsPath, garm.AnnotationsProto},
-		{garm.VendoredAgentAnnotationsPath, garm.AgentAnnotationsProto},
-		{garm.VendoredCardAnnotationsPath, garm.CardAnnotationsProto},
-		{garm.VendoredMetaAnnotationsPath, garm.MetaAnnotationsProto},
+		{contracts.VendoredAnnotationsPath, contracts.AnnotationsProto},
+		{contracts.VendoredAgentAnnotationsPath, contracts.AgentAnnotationsProto},
+		{contracts.VendoredCardAnnotationsPath, contracts.CardAnnotationsProto},
+		{contracts.VendoredMetaAnnotationsPath, contracts.MetaAnnotationsProto},
 		{"buf.yaml", []byte(bufYAML)},
 		{"buf.gen.yaml", []byte(bufGenYAML)},
 	}

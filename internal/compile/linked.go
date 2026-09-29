@@ -30,12 +30,12 @@ import (
 	// "garm/agent/v1/agent.proto" resolvable by its real path in any tree
 	// this binary compiles, vendored or not — which is what `garm init`
 	// writes and what a conformance case imports.
-	_ "github.com/garm-ai/garm/contracts/garm/agent/v1"
+	_ "github.com/garm-ai/contracts/garm/agent/v1"
 	// garm.card.v1 and garm.meta.v1 for the same reason: a template or an
 	// owner is an option on a service the tree declares, and the file that
 	// defines the extension has to resolve for the option to be parsed.
-	_ "github.com/garm-ai/garm/contracts/garm/card/v1"
-	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
+	_ "github.com/garm-ai/contracts/garm/card/v1"
+	_ "github.com/garm-ai/contracts/garm/meta/v1"
 	// garm.tasks.v1 is a SERVICE contract rather than a vocabulary, and it is
 	// linked for a different reason from the three above: a deployment that
 	// wants the tasks tools in its catalogue imports this file from its own
@@ -43,5 +43,5 @@ import (
 	// lines of somebody else's service. Importing it is also what puts its
 	// tools in that catalogue — the compiler collects a file's imports into
 	// the descriptor set, and every annotated method in the set is a tool.
-	_ "github.com/garm-ai/garm/contracts/garm/tasks/v1"
+	_ "github.com/garm-ai/contracts/garm/tasks/v1"
 )

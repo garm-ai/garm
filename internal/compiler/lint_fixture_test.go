@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	metav1 "github.com/garm-ai/garm/contracts/garm/meta/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	metav1 "github.com/garm-ai/contracts/garm/meta/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/internal/compiler"
 )
 

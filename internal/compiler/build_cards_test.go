@@ -7,9 +7,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	"github.com/garm-ai/garm/contracts/cards"
-	cardv1 "github.com/garm-ai/garm/contracts/garm/card/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/cards"
+	cardv1 "github.com/garm-ai/contracts/garm/card/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 const cardFixture = `

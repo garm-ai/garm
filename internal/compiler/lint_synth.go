@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"github.com/garm-ai/garm/contracts/cards"
+	"github.com/garm-ai/contracts/cards"
 )
 
 // Rule C9 — a hand-written method may not take a synthesised card's name.

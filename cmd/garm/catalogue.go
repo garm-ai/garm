@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	garm "github.com/garm-ai/garm"
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	"github.com/garm-ai/contracts"
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
 	"github.com/garm-ai/garm/internal/compile"
 	"github.com/garm-ai/garm/internal/compiler"
 )
@@ -128,7 +128,7 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, promptsRoot, out, source st
 	}
 
 	cat := &cataloguev1.Catalogue{
-		AnnotationSchemaVersion: garm.AnnotationSchemaVersion,
+		AnnotationSchemaVersion: contracts.AnnotationSchemaVersion,
 		Files:                   set,
 		Compartments:            compiler.DeclaredCompartments(fds),
 		ToolSets:                compiler.DeclaredSets(fds),
@@ -167,7 +167,7 @@ func runCatalogueBuild(cmd *cobra.Command, protoDir, promptsRoot, out, source st
 	sum := sha256.Sum256(body)
 	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", out)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %d tool(s) in %d package(s), %d file(s), %d documented field(s), schema v%d\n",
-		len(tools), len(hashes), len(set.GetFile()), len(docs), garm.AnnotationSchemaVersion)
+		len(tools), len(hashes), len(set.GetFile()), len(docs), contracts.AnnotationSchemaVersion)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %d synthesised card endpoint(s)\n", synthesised)
 	fmt.Fprintf(cmd.OutOrStdout(), "  digest sha256:%s\n", hex.EncodeToString(sum[:]))
 	// The FQN is proto package + resolved tool name, split at the last dot
