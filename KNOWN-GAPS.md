@@ -189,7 +189,14 @@ rows of §6's table P1 cannot check:
   `protoc-gen-garm-go` once per directory, so the tools an agent names usually
   live outside the request. The plugin warns (A3) that the allowlist and its
   guards were not checked and names what does check them: `garm lint` over the
-  tree, and `garm catalogue build`.
+  tree, and `garm catalogue build`. A7 warns the same way, per step whose tool
+  is absent, for the parts that need that tool's descriptors — `with` keys
+  against its request, `set` expressions against its response, and which of its
+  request fields are the runner's. What A7 still ERRORS on there is everything
+  answerable from the agent's own file: the allowlist, `initial`, `set` keys
+  against the state message, edge predicates, and the write-dominator rule
+  itself, because the reads are found by parsing and a parse needs no
+  descriptor.
 
 ## What `catalogue diff` does not compare
 

@@ -159,9 +159,18 @@ func vocabulary(fds []protoreflect.FileDescriptor, opts Options) (
 // PartialSet; A10 needs only the tool's own service, so it runs in the
 // per-tool loop with everything else.
 //
-// P1 (required platform packages, lint_required.go) is the third
-// catalogue-scoped rule, and it opens a new letter because it judges neither
-// an agent nor a card: a declaration that depends on a capability another
+// A6, A7 and A8 (lint_workflow.go) are the workflow-mode rules. A8 holds the
+// mode and the policy fields to agreeing and A6 holds the graph to being one;
+// both need only the agent's own declaration. A7 is split, and the split is the
+// interesting part: the half that type-checks a step's `with` against the
+// tool's REQUEST descriptor is catalogue-scoped and warns off under PartialSet
+// beside A3, while the half that refuses a read of a state field not written on
+// every path errors everywhere — it finds the reads by parsing, so it needs no
+// descriptor but the state message, which is in the agent's own file.
+//
+// P1 (required platform packages, lint_required.go) is the catalogue-scoped
+// rule that opens a new letter, because it judges neither an agent nor a card:
+// a declaration that depends on a capability another
 // PACKAGE provides must find that package in the same catalogue. It warns off
 // under PartialSet for the same reason A3 does — one directory cannot answer a
 // question about the assembled set — and it is an error everywhere else.

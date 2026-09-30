@@ -45,6 +45,13 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		out = append(out, lintAgentPrompts(a, opts)...)
 		out = append(out, lintAgentMode(a)...)
 		out = append(out, lintWorkflowGraph(a)...)
+		// A7 is whole-catalogue, and takes opts rather than being skipped: the
+		// half that needs a tool's descriptors warns off under PartialSet and
+		// the half that needs only this agent's own declaration — the
+		// write-dominator rule, `initial`, `set` keys, edge predicates — still
+		// errors. See lintWorkflowExpressionsWith for why the split is there
+		// rather than at this call site.
+		out = append(out, lintWorkflowExpressionsWith(a, tools, opts)...)
 		if opts.PartialSet {
 			// Not silently: a rule that is skipped wherever nobody is
 			// looking is not a rule. Same treatment A2 gives a missing

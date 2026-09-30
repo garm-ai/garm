@@ -217,10 +217,14 @@ Whether the package is present is a question about the **assembled** catalogue,
 not about one declaration, which is why `garm lint` now takes the same inputs
 `catalogue build` does — a manifest found by convention, `-f` to name one
 elsewhere, and `--proto` as the deprecated single-directory shorthand. The same
-is true of A3's agent allowlist and A9's audience: a linter that saw only the
-deployment's own directory would pass a tree the build then refuses. The protoc
-plugin, which buf invokes once per directory, cannot answer any of the three and
-says it did not check rather than passing silently.
+is true of A3's agent allowlist, A9's audience, and the half of A7 that resolves
+a workflow step's `with` keys against the tool's request message: a linter that
+saw only the deployment's own directory would pass a tree the build then refuses.
+The protoc plugin, which buf invokes once per directory, cannot answer any of
+them and says it did not check rather than passing silently. A7's other half —
+that a state field is read only where every path has written it — needs nothing
+but the agent's own declaration, so it is an error everywhere, the plugin
+included.
 
 ### The flags
 
@@ -296,7 +300,7 @@ Shipped: `init`, `gen`, `lint`, `catalogue init|build|diff|publish`,
 reads one and the required-platform-package rule is enforced since **v0.21.0**.
 What the manifest still does not do — the taxonomy, and `publish` resolving a
 composed agent's prompts out of its own module — is in KNOWN-GAPS.md.
-Thirty-two tool lint rules (the L series), seven agent rules (A1–A5, A9, A10),
+Thirty-two tool lint rules (the L series), ten agent rules (A1–A10),
 three card rules (C1, C8, C9), one ownership rule (O1, a warning) and one
 platform-package rule (P1), with twenty conformance cases. What is still missing
 is in KNOWN-GAPS.md.

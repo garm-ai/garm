@@ -2,8 +2,17 @@ package compiler
 
 import (
 	"fmt"
+	"sort"
+	"strings"
+
+	"cel.dev/cel-go/cel"
+	celast "cel.dev/cel-go/common/ast"
+	"cel.dev/cel-go/common/types"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 )
 
 // lintAgentMode covers A8: the mode and the fields agree.
@@ -109,5 +118,739 @@ func lintWorkflowGraph(a Agent) []Diag {
 					"fallback, or make %q terminal by removing its edges", id, id)})
 		}
 	}
+	return out
+}
+
+// lintWorkflowExpressions covers A7: every expression type-checks, and a state
+// field may be read only where every path to that point has written it.
+//
+// The rule with teeth is the second half. A declared state message returns the
+// ZERO value for a field nothing wrote — silently — and a payment reference
+// reading "INV-1 / compliance " with nothing after it is a wrong answer that
+// looks like a right one. That is worse than a missing value, so the analysis
+// is on WRITES: a field's writers are `initial` plus the `set` blocks naming
+// it, and for a step writer the question is whether it DOMINATES the reading
+// step. graph.dominators answers exactly that.
+//
+// This entry point is the whole-catalogue one. See lintWorkflowExpressionsWith
+// for what a one-directory run can and cannot answer.
+func lintWorkflowExpressions(a Agent, tools map[string]Tool) []Diag {
+	return lintWorkflowExpressionsWith(a, tools, Options{})
+}
+
+// lintWorkflowExpressionsWith is A7 with the caller's context.
+//
+// A7 IS A WHOLE-CATALOGUE RULE: a step's `with` keys resolve against the
+// tool's REQUEST descriptor and `set` reads its RESPONSE, both usually in
+// another directory. buf invokes the protoc plugin once per directory, so
+// under Options.PartialSet those descriptors are not in the request at all.
+// The repository's pattern — lint.go's preamble, and A3, A9 and P1 — is that
+// such a rule WARNS there and is enforced where the whole set is assembled.
+// So under PartialSet a step whose tool is absent gets a warning naming the
+// commands that do check it, and the halves that need only the agent's own
+// declaration still ERROR:
+//
+//   - the allowlist (the graph may not name a tool the manifest does not),
+//   - `set` keys against the state message, which is in the agent's own file,
+//   - `initial`, over Invoke's request, also the agent's own file,
+//   - edge predicates, which read `state` and nothing else,
+//   - and the dominance rule itself, on every `with` and `set` expression:
+//     the reads are found by PARSING, which needs no tool descriptor.
+//
+// That last line is the point of the split. The load-bearing half of A7 runs
+// everywhere, including on every `buf generate`; only the type-fitting of a
+// `with` key against a request it cannot see waits for `garm lint`.
+func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) []Diag {
+	p := a.Policy
+	if p.GetMode() != agentv1.Mode_MODE_WORKFLOW {
+		return nil
+	}
+	var out []Diag
+	bad := func(format string, args ...any) {
+		out = append(out, Diag{Rule: "A7", Path: string(a.FQN),
+			Msg: fmt.Sprintf(format, args...)})
+	}
+
+	allowed := map[string]bool{}
+	for _, ref := range p.GetTools() {
+		allowed[ref.GetFqn()] = true
+	}
+	g, _ := newGraph(p.GetSteps(), p.GetEdges())
+	if g == nil {
+		// A6 reported the shape. Going on would be a second diagnostic for the
+		// same mistake, and a dominator set over a graph with two entries means
+		// nothing anyway.
+		return out
+	}
+
+	state := a.StateMessage
+	if state == nil {
+		// A8 says this too. Repeated here because A7 cannot proceed without
+		// it and a rule that returns silently is one nobody can tell ran.
+		bad("mode is MODE_WORKFLOW and no GetState method declares a state " +
+			"type, so there is nothing for these expressions to be checked against")
+		return out
+	}
+
+	// writesBy[step] is the state paths that step's `set` writes.
+	dom := g.dominators()
+	writesBy := map[string]map[string]bool{}
+	for _, s := range p.GetSteps() {
+		w := map[string]bool{}
+		for k := range s.GetSet() {
+			w[k] = true
+		}
+		writesBy[s.GetId()] = w
+	}
+	initial := map[string]bool{}
+	for k := range p.GetInitial() {
+		initial[k] = true
+	}
+	// writtenBefore is the fields guaranteed written when a step BEGINS: the
+	// `initial` block, plus the writes of every step that dominates it. A
+	// step's own `set` is not in it — a `with` is evaluated before the call
+	// and a `set` from the pre-call state, so neither can read this step's
+	// own writes.
+	writtenBefore := func(step string) map[string]bool {
+		w := copySet(initial)
+		for d := range dom[step] {
+			if d == step {
+				continue
+			}
+			for f := range writesBy[d] {
+				w[f] = true
+			}
+		}
+		return w
+	}
+	// whoWrites is for the diagnostic alone: naming the steps that write a
+	// field is what lets an author see which path skips them.
+	whoWrites := func(field string) []string {
+		var who []string
+		for _, id := range g.ids {
+			for f := range writesBy[id] {
+				if pathCovers(f, field) {
+					who = append(who, id)
+					break
+				}
+			}
+		}
+		return who
+	}
+
+	// One environment per shape, not per step: building one walks a file's
+	// whole type graph, and every step's `with` sees the same `state`.
+	stateOnly, err := stateEnv(state, nil)
+	if err != nil {
+		bad("cannot build an expression environment over %s: %v", state.FullName(), err)
+		return out
+	}
+	setEnvs := map[protoreflect.FullName]*cel.Env{}
+
+	out = append(out, lintWorkflowInitial(a, state, initial)...)
+
+	for _, s := range p.GetSteps() {
+		id := s.GetId()
+		avail := writtenBefore(id)
+
+		// The reads come first, and they run whatever the caller can see: a
+		// parse is enough to find them, so PartialSet changes nothing here.
+		own := writesBy[id]
+		checkReads(bad, state, avail, own, whoWrites, id, "with", s.GetWith())
+		checkReads(bad, state, avail, own, whoWrites, id, "set", s.GetSet())
+
+		if !allowed[s.GetTool()] {
+			bad("step %q calls %s, which is not in this agent's tools; the "+
+				"allowlist is the single authority on what may be called and a "+
+				"graph may only order what it already permits", id, s.GetTool())
+			continue
+		}
+		tool, ok := tools[s.GetTool()]
+		if !ok {
+			if opts.PartialSet {
+				out = append(out, Diag{Rule: "A7", Path: string(a.FQN), Warn: true,
+					Msg: fmt.Sprintf("step %q calls %s, which is not in this run's "+
+						"input: `with` keys against its request, `set` expressions "+
+						"against its response and the runner-owned fields of both "+
+						"are NOT checked here, because this run sees one directory "+
+						"rather than the catalogue. `garm lint` and `garm catalogue "+
+						"build` resolve the tool against the whole tree and do check "+
+						"them", id, s.GetTool())})
+				// The `set` KEYS still resolve: the state message is in this
+				// agent's own file, so an author who mistyped one is told here.
+				checkSetKeys(bad, state, id, s.GetSet())
+				continue
+			}
+			bad("step %q calls %s, which no linted package declares", id, s.GetTool())
+			continue
+		}
+
+		req, resp := tool.Method.Input(), tool.Method.Output()
+		for _, key := range sortedKeys(s.GetWith()) {
+			expr := s.GetWith()[key]
+			fd, err := resolveFieldPath(req, key)
+			if err != nil {
+				bad("step %q: `with` key %q: %v", id, key, err)
+				continue
+			}
+			if isRunnerOwned(tool, key) {
+				bad("step %q sets %q, which is the runner's: agentd fills it with "+
+					"`<run id>-<dispatch seq>`, after `with` has been evaluated, so "+
+					"an author's value is both overwritten and a way to turn a retry "+
+					"into a second call. Remove it", id, key)
+				continue
+			}
+			ast, iss := stateOnly.Compile(expr)
+			if iss != nil && iss.Err() != nil {
+				bad("step %q: `with[%s]` %q does not compile: %s",
+					id, key, expr, celMessages(iss))
+				continue
+			}
+			if !celTypeFits(ast.OutputType(), fd) {
+				bad("step %q: `with[%s]` is %s but %s is %s; a mismatch here is a "+
+					"marshalling failure at run time, in a governed call", id, key,
+					ast.OutputType(), key, fieldType(fd))
+			}
+		}
+
+		// A `set` may additionally read `response`.
+		senv, ok := setEnvs[resp.FullName()]
+		if !ok {
+			senv, err = stateEnv(state, map[string]protoreflect.MessageDescriptor{
+				"response": resp})
+			if err != nil {
+				bad("step %q: cannot build a `set` environment over %s: %v",
+					id, resp.FullName(), err)
+				continue
+			}
+			setEnvs[resp.FullName()] = senv
+		}
+		for _, key := range sortedKeys(s.GetSet()) {
+			expr := s.GetSet()[key]
+			fd, err := resolveFieldPath(state, key)
+			if err != nil {
+				bad("step %q: `set` key %q: %v", id, key, err)
+				continue
+			}
+			ast, iss := senv.Compile(expr)
+			if iss != nil && iss.Err() != nil {
+				bad("step %q: `set[%s]` %q does not compile: %s",
+					id, key, expr, celMessages(iss))
+				continue
+			}
+			if !celTypeFits(ast.OutputType(), fd) {
+				bad("step %q: `set[%s]` is %s but the state field %s is %s",
+					id, key, ast.OutputType(), key, fieldType(fd))
+			}
+		}
+	}
+
+	// An edge predicate runs AFTER its `from` step, so it sees that step's
+	// writes as well as everything written before it.
+	for _, e := range p.GetEdges() {
+		if e.GetWhen() == "" {
+			continue
+		}
+		from := e.GetFrom()
+		avail := writtenBefore(from)
+		for f := range writesBy[from] {
+			avail[f] = true
+		}
+		label := fmt.Sprintf("edge %s->%s", from, e.GetTo())
+		checkReadsExpr(bad, state, avail, nil, whoWrites, label, e.GetWhen())
+		ast, iss := stateOnly.Compile(e.GetWhen())
+		if iss != nil && iss.Err() != nil {
+			bad("%s: `when` %q does not compile: %s", label, e.GetWhen(), celMessages(iss))
+			continue
+		}
+		if !ast.OutputType().IsExactType(cel.BoolType) {
+			bad("%s: `when` is %s, and an edge predicate must be bool: the runner "+
+				"takes the edge when it is true and has nothing to compare when it "+
+				"is anything else", label, ast.OutputType())
+		}
+	}
+	return out
+}
+
+// lintWorkflowInitial checks the `initial` block: its keys against the state
+// message, its expressions against `input`, Invoke's request.
+//
+// `initial` is the ONLY place a caller's request enters the state, so a typo
+// in one of these is a state field that is silently zero for the whole run —
+// the same hole the dominance rule closes, one level earlier. Both halves need
+// only the agent's own file, so this runs under PartialSet too.
+func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map[string]bool) []Diag {
+	if len(keys) == 0 {
+		return nil // A8 reports an empty `initial`; nothing to check here.
+	}
+	var out []Diag
+	bad := func(format string, args ...any) {
+		out = append(out, Diag{Rule: "A7", Path: string(a.FQN),
+			Msg: fmt.Sprintf(format, args...)})
+	}
+	if a.Invoke == nil {
+		// A1 reports the missing Invoke. Without its request type there is no
+		// `input`, so the expressions cannot be checked at all.
+		return nil
+	}
+	// `state` is deliberately absent from this environment: `initial` is what
+	// creates the state, so there is nothing yet to read.
+	env, err := celEnvFor([]celVar{{name: "input", md: a.Invoke.Input()}})
+	if err != nil {
+		bad("cannot build an environment over %s for `initial`: %v",
+			a.Invoke.Input().FullName(), err)
+		return out
+	}
+	for _, key := range sortedSet(keys) {
+		expr := a.Policy.GetInitial()[key]
+		fd, err := resolveFieldPath(state, key)
+		if err != nil {
+			bad("`initial` key %q: %v", key, err)
+			continue
+		}
+		ast, iss := env.Compile(expr)
+		if iss != nil && iss.Err() != nil {
+			bad("`initial[%s]` %q does not compile against %s: %s",
+				key, expr, a.Invoke.Input().FullName(), celMessages(iss))
+			continue
+		}
+		if !celTypeFits(ast.OutputType(), fd) {
+			bad("`initial[%s]` is %s but the state field %s is %s",
+				key, ast.OutputType(), key, fieldType(fd))
+		}
+	}
+	return out
+}
+
+// checkSetKeys resolves a step's `set` keys against the state message and
+// nothing else. Split out because it is the one part of a step that a
+// one-directory run can still answer when the step's TOOL is absent.
+func checkSetKeys(bad func(string, ...any), state protoreflect.MessageDescriptor,
+	step string, set map[string]string) {
+	for _, key := range sortedKeys(set) {
+		if _, err := resolveFieldPath(state, key); err != nil {
+			bad("step %q: `set` key %q: %v", step, key, err)
+		}
+	}
+}
+
+// checkReads refuses a read of a state field that is not guaranteed written,
+// over every expression at one site of one step.
+func checkReads(bad func(string, ...any), state protoreflect.MessageDescriptor,
+	avail, own map[string]bool, whoWrites func(string) []string,
+	step, site string, exprs map[string]string) {
+	for _, k := range sortedKeys(exprs) {
+		checkReadsExpr(bad, state, avail, own, whoWrites,
+			fmt.Sprintf("step %q `%s[%s]`", step, site, k), exprs[k])
+	}
+}
+
+// checkReadsExpr refuses a read of a state field that is not guaranteed
+// written on every path to here.
+//
+// It PARSES rather than greps: `state.note` appears inside string
+// concatenation, comparisons, ternaries and function arguments, and a
+// substring search would both miss nested uses and match a field name
+// occurring in a string literal.
+//
+// A parse-only environment is deliberate. This half of A7 must run where the
+// tool descriptors are absent, and finding the NAMES a read touches needs no
+// types at all.
+// `own` is the reading step's OWN writes, or nil at an edge, and exists only
+// to tell one likely mistake from the general one.
+func checkReadsExpr(bad func(string, ...any), state protoreflect.MessageDescriptor,
+	avail, own map[string]bool, whoWrites func(string) []string, label, expr string) {
+	env, err := cel.NewEnv()
+	if err != nil {
+		return
+	}
+	ast, iss := env.Parse(expr)
+	if iss != nil && iss.Err() != nil {
+		return // the typed compile reports a syntax error, with its own sentence
+	}
+	for _, field := range stateSelections(ast) {
+		if _, err := resolveFieldPath(state, field); err != nil {
+			continue // not a state field at all; the typed compile says so
+		}
+		if writtenCovers(avail, field) {
+			continue
+		}
+		if writtenCovers(own, field) {
+			// The mistake an author makes first, and the general sentence below
+			// would tell them their own step does not dominate itself.
+			bad("%s reads state.%s, which this same step's `set` writes — and both "+
+				"`with` and `set` are evaluated against the state as it was BEFORE "+
+				"this step ran, so the read sees the zero value rather than what "+
+				"this step is about to write. Write the field in an earlier step, "+
+				"or set it in `initial`", label, field)
+			continue
+		}
+		who := whoWrites(field)
+		if len(who) == 0 {
+			bad("%s reads state.%s, which no step writes and `initial` does not "+
+				"set, so it would hold its zero value on every path. Set it in "+
+				"`initial`, or write it in a step that runs before this one",
+				label, field)
+			continue
+		}
+		bad("%s reads state.%s, which is written by %v — and at least one path "+
+			"to here does not pass through %v, so the field would silently hold "+
+			"its zero value. Either move the read onto a branch those steps "+
+			"dominate, or set the field in `initial`", label, field, who, who)
+	}
+}
+
+// stateSelections returns the state field paths an expression reads.
+//
+// It walks the parsed tree for Select nodes whose operand chain bottoms out at
+// the identifier `state`, and reports the LONGEST chain: `state.amount.minor`
+// is one read of `amount.minor`, not also a read of `amount`. Presence tests
+// (`has(state.x)`) are reads like any other — the rule is one sentence and
+// stays one sentence.
+func stateSelections(a *cel.Ast) []string {
+	if a == nil || a.NativeRep() == nil {
+		return nil
+	}
+	// A Select that is another Select's operand is a prefix of a longer chain,
+	// so it is not a read of its own.
+	inner := map[int64]bool{}
+	paths := map[int64]string{}
+	var order []int64
+	celast.PostOrderVisit(a.NativeRep().Expr(), celast.NewExprVisitor(func(e celast.Expr) {
+		if e.Kind() != celast.SelectKind {
+			return
+		}
+		inner[e.AsSelect().Operand().ID()] = true
+		if path := statePath(e); path != "" {
+			paths[e.ID()] = path
+			order = append(order, e.ID())
+		}
+	}))
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range order {
+		if inner[id] {
+			continue
+		}
+		if p := paths[id]; !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// statePath returns the dotted field path of a selection chain rooted at the
+// identifier `state`, or "" for any other chain.
+func statePath(e celast.Expr) string {
+	var segs []string
+	for e.Kind() == celast.SelectKind {
+		sel := e.AsSelect()
+		segs = append(segs, sel.FieldName())
+		e = sel.Operand()
+	}
+	if e.Kind() != celast.IdentKind || e.AsIdent() != "state" {
+		return ""
+	}
+	for i, j := 0, len(segs)-1; i < j; i, j = i+1, j-1 {
+		segs[i], segs[j] = segs[j], segs[i]
+	}
+	return strings.Join(segs, ".")
+}
+
+// writtenCovers reports whether the set of written paths makes a read of
+// `read` safe.
+func writtenCovers(written map[string]bool, read string) bool {
+	for w := range written {
+		if pathCovers(w, read) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathCovers reports whether a write of `written` puts a value where a read of
+// `read` looks. Either may be a segment-prefix of the other: writing `amount`
+// fills everything a read below it sees, and writing `amount.minor_units`
+// constructs `amount`, so a read of either reaches something a step wrote.
+//
+// What it refuses is the case A7 exists for — nothing on this path touched
+// that subtree at all, so the read returns the zero value. Presence WITHIN a
+// written message is not this rule's granularity and cannot be: writing
+// `amount` from a response says nothing about which of its own fields the tool
+// filled.
+func pathCovers(written, read string) bool {
+	return written == read ||
+		strings.HasPrefix(read, written+".") ||
+		strings.HasPrefix(written, read+".")
+}
+
+// celVar is one variable declaration: a name and the message type it holds.
+type celVar struct {
+	name string
+	md   protoreflect.MessageDescriptor
+}
+
+// celEnvFor builds a CEL environment declaring each variable as its message
+// type, over a type registry walked from every one of those messages' files.
+//
+// The descriptors come from the tree being linted, not from anything this
+// binary links, so the provider is built from the file descriptors — exactly
+// as guardEnv does for A4. The IMPORT walk is what makes a
+// google.protobuf.Timestamp inside a state message resolve rather than
+// becoming an unknown type the moment an expression touches it.
+func celEnvFor(vars []celVar) (*cel.Env, error) {
+	reg, err := types.NewRegistry()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	opts := make([]cel.EnvOption, 0, len(vars)+2)
+	opts = append(opts, cel.CustomTypeAdapter(reg), cel.CustomTypeProvider(reg))
+	for _, v := range vars {
+		if err := registerFileAndImports(reg, v.md.ParentFile(), seen); err != nil {
+			return nil, err
+		}
+		opts = append(opts, cel.Variable(v.name, cel.ObjectType(string(v.md.FullName()))))
+	}
+	return cel.NewEnv(opts...)
+}
+
+// stateEnv declares `state` plus any extra variables — `response`, at a
+// step's `set` — over a registry built from every one of those messages'
+// files and their imports.
+func stateEnv(state protoreflect.MessageDescriptor,
+	extra map[string]protoreflect.MessageDescriptor) (*cel.Env, error) {
+	vars := make([]celVar, 0, len(extra)+1)
+	vars = append(vars, celVar{name: "state", md: state})
+	names := make([]string, 0, len(extra))
+	for n := range extra {
+		names = append(names, n)
+	}
+	sort.Strings(names) // deterministic, so a failure reproduces
+	for _, n := range names {
+		vars = append(vars, celVar{name: n, md: extra[n]})
+	}
+	return celEnvFor(vars)
+}
+
+// resolveFieldPath walks a dotted path, so `amount.minor_units` reaches a
+// nested field without an author constructing a submessage in an expression.
+func resolveFieldPath(md protoreflect.MessageDescriptor, path string) (protoreflect.FieldDescriptor, error) {
+	if path == "" {
+		return nil, fmt.Errorf("is empty; name a field")
+	}
+	parts := strings.Split(path, ".")
+	cur := md
+	for i, part := range parts {
+		fd := cur.Fields().ByName(protoreflect.Name(part))
+		if fd == nil {
+			return nil, fmt.Errorf("%s has no field %q", cur.FullName(), part)
+		}
+		if i == len(parts)-1 {
+			return fd, nil
+		}
+		if fd.IsMap() || fd.IsList() {
+			return nil, fmt.Errorf("%s.%s is repeated, and a path may not index "+
+				"into it, so %q cannot continue", cur.FullName(), part, path)
+		}
+		if fd.Kind() != protoreflect.MessageKind && fd.Kind() != protoreflect.GroupKind {
+			return nil, fmt.Errorf("%s.%s is not a message, so %q cannot continue",
+				cur.FullName(), part, path)
+		}
+		cur = fd.Message()
+	}
+	return nil, fmt.Errorf("empty path")
+}
+
+// isRunnerOwned reports whether a request field is the RUNNER's to set.
+//
+// One definition, read off the annotation: a top-level request field whose own
+// field policy says `source: SOURCE_RUNNER`. That is exactly what agentd's
+// catalogue reader computes (catalogue.runnerFieldsOf) and what agentd's
+// stripRunnerFields then removes from the schema it shows a model, and what
+// L34 holds to a name the runner has a rule for. A hard-coded list of names
+// here would be a second definition that drifts from the protos the first time
+// one is added.
+//
+// Top level, and the field's OWN policy: a message default is not consulted,
+// for the same reason it is not there — a default that made every field the
+// runner's would describe a request nobody could send, and L34 refuses it. The
+// path's ROOT segment is what is judged, so `idempotency_key.anything` is
+// refused too.
+func isRunnerOwned(tool Tool, path string) bool {
+	root, _, _ := strings.Cut(path, ".")
+	fd := tool.Method.Input().Fields().ByName(protoreflect.Name(root))
+	if fd == nil {
+		return false // resolveFieldPath already reported that it is not a field
+	}
+	return policy.FieldPolicyOf(fd, nil).GetSource() == toolv1.FieldPolicy_SOURCE_RUNNER
+}
+
+// celTypeFits reports whether a value of CEL type t may be written to fd.
+//
+// Deliberately CONSERVATIVE: an exact match, and only the widenings protobuf
+// marshalling genuinely performs. A permissive version here would put the
+// failure back at run time, inside a governed call, which is the thing A7
+// exists to prevent. Two consequences worth stating, because they are the ones
+// that look like gaps:
+//
+//   - A dyn-typed expression FAILS. The checker producing dyn means it could
+//     not determine the type, and that is precisely where a run-time
+//     marshalling failure lives.
+//   - Integer WIDTH is not checked, because CEL has no int32: every CEL
+//     integer is an int64 and every CEL unsigned is a uint64, so `int` into an
+//     int32 field is the only thing an author can write and the range check is
+//     the runner's. Signedness IS checked — int into a uint64 field is
+//     refused, since half its range has no representation.
+func celTypeFits(t *cel.Type, fd protoreflect.FieldDescriptor) bool {
+	if t == nil || fd == nil {
+		return false
+	}
+	switch {
+	case fd.IsMap():
+		if t.Kind() != types.MapKind {
+			return false
+		}
+		ps := t.Parameters()
+		return len(ps) == 2 && celValueFits(ps[0], fd.MapKey()) && celValueFits(ps[1], fd.MapValue())
+	case fd.IsList():
+		if t.Kind() != types.ListKind {
+			return false
+		}
+		ps := t.Parameters()
+		// fd.Kind() on a repeated field is its ELEMENT's kind, so the same
+		// judgement applies to the element type.
+		return len(ps) == 1 && celValueFits(ps[0], fd)
+	default:
+		return celValueFits(t, fd)
+	}
+}
+
+// celValueFits judges one value against a field's type, ignoring cardinality.
+func celValueFits(t *cel.Type, fd protoreflect.FieldDescriptor) bool {
+	if t == nil {
+		return false
+	}
+	switch fd.Kind() {
+	case protoreflect.BoolKind:
+		return t.Kind() == types.BoolKind
+	case protoreflect.StringKind:
+		return t.Kind() == types.StringKind
+	case protoreflect.BytesKind:
+		return t.Kind() == types.BytesKind
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return t.Kind() == types.IntKind
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return t.Kind() == types.UintKind
+	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		// An integer into a float field is the one numeric widening protobuf
+		// JSON genuinely performs.
+		return t.Kind() == types.DoubleKind || t.Kind() == types.IntKind ||
+			t.Kind() == types.UintKind
+	case protoreflect.EnumKind:
+		// CEL represents a proto enum as an int, so an int is the only thing
+		// an expression can produce for one. Which values are declared is not
+		// knowable from a type.
+		return t.Kind() == types.IntKind
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		return celMessageFits(t, fd.Message())
+	}
+	return false
+}
+
+// celMessageFits judges a value against a message-typed field.
+//
+// The well-known types are named individually rather than matched by name
+// prefix, because each has its own CEL representation and a rule that guessed
+// would be exactly the permissive version this file argues against.
+func celMessageFits(t *cel.Type, md protoreflect.MessageDescriptor) bool {
+	if md == nil {
+		return false
+	}
+	if t.Kind() == types.NullTypeKind {
+		return true // null clears a message field; protobuf JSON says so
+	}
+	name := string(md.FullName())
+	switch name {
+	case "google.protobuf.Timestamp":
+		return t.Kind() == types.TimestampKind
+	case "google.protobuf.Duration":
+		return t.Kind() == types.DurationKind
+	case "google.protobuf.BoolValue":
+		return t.Kind() == types.BoolKind
+	case "google.protobuf.StringValue":
+		return t.Kind() == types.StringKind
+	case "google.protobuf.BytesValue":
+		return t.Kind() == types.BytesKind
+	case "google.protobuf.Int32Value", "google.protobuf.Int64Value":
+		return t.Kind() == types.IntKind
+	case "google.protobuf.UInt32Value", "google.protobuf.UInt64Value":
+		return t.Kind() == types.UintKind
+	case "google.protobuf.FloatValue", "google.protobuf.DoubleValue":
+		return t.Kind() == types.DoubleKind || t.Kind() == types.IntKind ||
+			t.Kind() == types.UintKind
+	case "google.protobuf.Struct":
+		return t.Kind() == types.MapKind
+	case "google.protobuf.ListValue":
+		return t.Kind() == types.ListKind
+	case "google.protobuf.Value":
+		// A Value holds any JSON value, so anything with a determinate type
+		// fits. Dyn does not: it means the checker could not tell.
+		switch t.Kind() {
+		case types.BoolKind, types.BytesKind, types.DoubleKind, types.IntKind,
+			types.UintKind, types.StringKind, types.ListKind, types.MapKind,
+			types.NullTypeKind, types.StructKind:
+			return true
+		}
+		return false
+	}
+	return t.Kind() == types.StructKind && t.TypeName() == name
+}
+
+// fieldType renders a field's type the way a schema author wrote it, because
+// "message" tells an author nothing about which message was wanted.
+func fieldType(fd protoreflect.FieldDescriptor) string {
+	switch {
+	case fd.IsMap():
+		return fmt.Sprintf("map<%s, %s>", fieldType(fd.MapKey()), fieldType(fd.MapValue()))
+	case fd.IsList():
+		return "repeated " + scalarTypeName(fd)
+	default:
+		return scalarTypeName(fd)
+	}
+}
+
+func scalarTypeName(fd protoreflect.FieldDescriptor) string {
+	switch fd.Kind() {
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		return string(fd.Message().FullName())
+	case protoreflect.EnumKind:
+		return string(fd.Enum().FullName())
+	default:
+		return fd.Kind().String()
+	}
+}
+
+// sortedKeys and sortedSet make every diagnostic's ORDER deterministic: `with`
+// and `set` are proto maps, and a rule that reports in map order reports in a
+// different order on every run, which no golden file can hold.
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedSet(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
 	return out
 }
