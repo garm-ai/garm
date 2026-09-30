@@ -49,12 +49,31 @@ rows of §6's table P1 cannot check:
   both states at once and `catalogue build` refuses it by name — two inputs
   declaring one proto package — which is that check working, and which means the
   written manifest describes the tree as it will be rather than as it is.
-- **The taxonomy is still scraped from proto options.** `compartments` and
-  `tool_sets` come from a file-level option unioned across every file in the set,
-  first declaration winning, which means adopting a tool silently extends the
-  vocabulary that governs who may see what. The manifest is where a deployment
-  should declare it. Nothing in `catalogue.yaml` accepts a `taxonomy:` key yet,
-  and an unknown key is refused, so a tree cannot pre-empt this.
+- **The taxonomy is the deployment's since v0.22.0, and nothing migrates a tree
+  to it.** `catalogue.yaml` takes a `taxonomy:` key with `compartments:` and
+  `tool_sets:`, each entry a name and a required description; lint resolves every
+  name a tool REQUIRES against it and refuses an undeclared one. A tree that
+  declares the key stops reading file-level proto options altogether — a union
+  would preserve the very thing the key exists to end, which is that adopting a
+  tool silently extends the vocabulary governing who may see what. A tree with no
+  `taxonomy:` key keeps the scrape exactly, which is every catalogue in the estate
+  today including the one the plane runs.
+
+  What is missing is the migration. `catalogue init` writes a manifest for a
+  pre-manifest tree and does **not** write a `taxonomy:` block, so moving a
+  deployment over means transcribing its `option (garm.tool.v1.compartments)`
+  declarations into YAML by hand and then deleting the protos that carried them.
+  `init` already scrapes the tree for everything else it writes and this is the
+  obvious next entry in its report; it is not built.
+
+  Two consequences worth knowing. **`--proto` can never declare a taxonomy**: the
+  flag synthesises a one-entry manifest in memory, so a tree using the deprecated
+  shorthand always gets the scrape. And **`garm.tool.v1.compartments` and
+  `tool_sets` are not deprecated in the contract** — the extensions still exist
+  and `garm init` still vendors them, because a tool package genuinely does need
+  to document the words it requires somewhere a reader can find them. What changed
+  is who those declarations bind: a deployment, not every deployment that adopts
+  the package.
 - **A composed agent's prompts are not resolvable.** An entry's `prompts:` key is
   parsed and carried on `manifest.Input`, and consumed by nobody: `catalogue
   publish` still takes one `--prompts-root` and resolves every pinned digest
@@ -154,6 +173,18 @@ rows of §6's table P1 cannot check:
   run time yet; what garmd owes for each is in its own gaps file. A catalogue
   that passes every rule here can still be served by a daemon that ignores
   both fields.
+- **The plugin no longer refuses an undeclared compartment or tool set, and that
+  is a real loss.** L7's reference half and L20 joined A3, A9 and P1 in the group
+  `PartialSet` turns into warnings when the taxonomy moved into the manifest in
+  v0.22.0: buf invokes the plugin once per directory with a descriptor set and no
+  manifest, so it cannot tell a name declared in `catalogue.yaml` from one that is
+  declared nowhere. Before the move, a tree whose taxonomy proto sat beside its
+  tools had a typo caught by `garm gen`; it no longer will, and `garm lint` and
+  `garm catalogue build` still do. What the old behaviour cost was worse — a
+  deployment could not delete its COPY of an adopted taxonomy proto, because the
+  plugin refused the tool naming a set the copy declared, while `catalogue build`
+  was perfectly content. A rule that forces a tree to keep a copy in order to pass
+  is a rule enforcing the thing the manifest exists to remove.
 - **The plugin does not resolve an agent's allowlist.** buf invokes
   `protoc-gen-garm-go` once per directory, so the tools an agent names usually
   live outside the request. The plugin warns (A3) that the allowlist and its

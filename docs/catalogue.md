@@ -672,8 +672,42 @@ one digest. Not a base plus an overlay: merge semantics are a governance
 surface, and *which layer wins* is a question nobody should have to ask about a
 policy document.
 
-Where two sources declare the same compartment, identical declarations merge
-and any difference fails the build, naming both:
+### The vocabulary is declared, not collected
+
+A tool **requires** compartments by name on each method. A deployment
+**declares** which words exist, in its manifest:
+
+```yaml
+taxonomy:
+  compartments:
+    - name: financial
+      description: Money movement and balances.
+    - name: internet
+      description: Content fetched from the public internet.
+  tool_sets:
+    - name: payments
+      description: Initiating and inspecting payments.
+```
+
+A name a tool requires and no entry declares fails the build. So adopting a tool
+that needs `internet` is a decision somebody makes — declare the word, or do not
+adopt the tool — and a typo is an undeclared name rather than a silently distinct
+compartment, which is a tool nobody can reach, refused for a reason nobody can
+see.
+
+Before v0.22.0 the vocabulary was collected instead: unioned out of a file-level
+proto option across every file in the set, first declaration winning, in traversal
+order. Two things were wrong with it. A deployment could not see its own
+access-control vocabulary in one place — the bank's seven compartments came from
+three protos with three different owners. And adopting a tool **silently extended**
+that vocabulary, because the tool's own proto declared the word. The deployment
+never said yes to the word; it said yes to the tool.
+
+Declaring `taxonomy:` replaces the collection rather than adding to it: a union
+would keep the silent extension, which is the whole defect. A tree with no
+`taxonomy:` key keeps the old behaviour, so nothing in the estate had to change at
+once, and where two protos then declare one compartment two ways the build still
+fails naming both:
 
 ```
 ERROR: compartment "financial" declared two ways
@@ -682,5 +716,13 @@ ERROR: compartment "financial" declared two ways
 Adopt one definition or rename yours.
 ```
 
+That rule has no subject once the manifest declares the vocabulary: the two
+declarations it compares are read by nothing.
+
 One decision, made once, yielding a coherent model — rather than a silent
 resolution nobody reviewed.
+
+Order in the manifest is presentation. Bit positions are assigned from a sort of
+the whole name set, so reordering the file cannot move a bit, and the bitset is
+per build and never persisted — tokens carry compartment names and the ledger
+records names.

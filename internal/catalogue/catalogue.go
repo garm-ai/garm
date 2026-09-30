@@ -69,8 +69,11 @@ func (d Diagnostics) Errors() int {
 // This is what `garm lint` prints, and it gates nothing: the gate is inside
 // Build, which lints the tree itself rather than trusting anything a caller
 // hands it. There is deliberately no way to pass Build a clean bill of health.
-func Check(fds []protoreflect.FileDescriptor, promptsRoot string) Diagnostics {
-	return Diagnostics(compiler.LintWith(fds, compiler.Options{PromptsRoot: promptsRoot}))
+func Check(fds []protoreflect.FileDescriptor, promptsRoot string, tax *compiler.Taxonomy) Diagnostics {
+	return Diagnostics(compiler.LintWith(fds, compiler.Options{
+		PromptsRoot: promptsRoot,
+		Taxonomy:    tax,
+	}))
 }
 
 // Request is what to build.
@@ -83,6 +86,14 @@ type Request struct {
 	// silently producing a catalogue whose cards are missing from half of it.
 	Set         *descriptorpb.FileDescriptorSet
 	Descriptors []protoreflect.FileDescriptor
+
+	// Taxonomy is the vocabulary the manifest declares, or nil for a tree that
+	// declares none and still has it scraped from file-level proto options.
+	//
+	// It reaches the artifact on `Catalogue`'s existing fields 3 and 4 either
+	// way, so a daemon's registry construction is untouched and this is not a
+	// contract change — only a change of where the words come from.
+	Taxonomy *compiler.Taxonomy
 
 	// Origin names where these declarations came from, for the message a
 	// refusal has to print: the manifest that composed them, or the --proto
@@ -180,7 +191,7 @@ func Build(req Request) (*Result, Diagnostics, error) {
 	set, fds := req.Set, req.Descriptors
 
 	// Lint before building, never after.
-	diags := Check(fds, req.PromptsRoot)
+	diags := Check(fds, req.PromptsRoot, req.Taxonomy)
 	if errs := diags.Errors(); errs > 0 {
 		return nil, diags, fmt.Errorf("refusing to build a catalogue with %d policy error(s)", errs)
 	}
@@ -240,11 +251,24 @@ func Build(req Request) (*Result, Diagnostics, error) {
 		hashes[pkg] = compiler.DescriptorHash(ts)
 	}
 
+	// The vocabulary the artifact carries: the manifest's when it declares one,
+	// and otherwise the union of the file-level proto options, which is what
+	// every tree built before v0.22.0 relies on.
+	//
+	// It is the SAME source the lint gate above resolved names against, and that
+	// is the property worth keeping: an artifact whose fields 3 and 4 disagreed
+	// with the vocabulary its own tools were checked against would carry a word
+	// no tool may use, or omit one every tool does.
+	compartments, toolSets := compiler.DeclaredCompartments(fds), compiler.DeclaredSets(fds)
+	if req.Taxonomy != nil {
+		compartments, toolSets = req.Taxonomy.Compartments, req.Taxonomy.ToolSets
+	}
+
 	cat := &cataloguev1.Catalogue{
 		AnnotationSchemaVersion: contracts.AnnotationSchemaVersion,
 		Files:                   set,
-		Compartments:            compiler.DeclaredCompartments(fds),
-		ToolSets:                compiler.DeclaredSets(fds),
+		Compartments:            compartments,
+		ToolSets:                toolSets,
 		FieldDocs:               docs,
 		DescriptorHashes:        hashes,
 		Provenance: &cataloguev1.Provenance{

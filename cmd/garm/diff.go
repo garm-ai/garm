@@ -49,11 +49,11 @@ func newCatalogueDiffCmd() *cobra.Command {
 }
 
 func runDiff(out io.Writer, beforePath, afterPath string, failOnWidening bool) error {
-	before, beforeDigest, err := readCatalogue(beforePath)
+	_, before, beforeDigest, err := readCatalogue(beforePath)
 	if err != nil {
 		return err
 	}
-	after, afterDigest, err := readCatalogue(afterPath)
+	_, after, afterDigest, err := readCatalogue(afterPath)
 	if err != nil {
 		return err
 	}
@@ -116,10 +116,10 @@ func header(d policydiff.Direction) string {
 // generated types rather than as unknown fields — the producer round-trips
 // them through the same registry on the way out, which is what makes this
 // symmetric.
-func readCatalogue(path string) ([]protoreflect.FileDescriptor, string, error) {
+func readCatalogue(path string) (*cataloguev1.Catalogue, []protoreflect.FileDescriptor, string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", fmt.Errorf("reading catalogue: %w", err)
+		return nil, nil, "", fmt.Errorf("reading catalogue: %w", err)
 	}
 	return parseCatalogue(path, raw)
 }
@@ -128,15 +128,23 @@ func readCatalogue(path string) ([]protoreflect.FileDescriptor, string, error) {
 // already holds the bytes it read from disk does not have to read the file a
 // second time just to get fds and a digest.
 //
+// It returns the MESSAGE as well as the descriptors, because since v0.22.0 a
+// deployment may declare its compartments and tool sets in `catalogue.yaml`
+// rather than in a file-level proto option — so `Catalogue.compartments` and
+// `.tool_sets` are the artifact's own answer about its vocabulary, and scraping
+// the descriptors would find nothing at all for such a catalogue. `claims check`
+// reads it from here for exactly that reason.
+//
 // `catalogue publish` is that caller: it uploads exactly the bytes it reads,
 // and a digest computed from a SECOND read could describe a different
 // generation of the file than the one actually sent — a TOCTOU gap between
 // "read the bytes we upload" and "read the bytes we hash", however narrow, is
 // the same category of bug this command exists to close for prompts.
-func parseCatalogue(path string, raw []byte) ([]protoreflect.FileDescriptor, string, error) {
+func parseCatalogue(path string, raw []byte) (
+	*cataloguev1.Catalogue, []protoreflect.FileDescriptor, string, error) {
 	var msg cataloguev1.Catalogue
 	if err := proto.Unmarshal(raw, &msg); err != nil {
-		return nil, "", fmt.Errorf("parsing %s: %w", path, err)
+		return nil, nil, "", fmt.Errorf("parsing %s: %w", path, err)
 	}
 	// An empty file, and anything else whose bytes happen to be a valid
 	// encoding of an empty Catalogue, parses without error and carries no
@@ -145,14 +153,14 @@ func parseCatalogue(path string, raw []byte) ([]protoreflect.FileDescriptor, str
 	// artifacts already fail above with something legible; this is the one
 	// remaining shape that did not.
 	if len(msg.GetFiles().GetFile()) == 0 {
-		return nil, "", fmt.Errorf(
+		return nil, nil, "", fmt.Errorf(
 			"%s is not a catalogue artifact: it contains no proto files "+
 				"(an empty or zero-byte file parses as an empty catalogue). "+
 				"Build one with `garm catalogue build`", path)
 	}
 	files, err := protodesc.NewFiles(msg.GetFiles())
 	if err != nil {
-		return nil, "", fmt.Errorf("rebuilding the registry from %s: %w", path, err)
+		return nil, nil, "", fmt.Errorf("rebuilding the registry from %s: %w", path, err)
 	}
 	var fds []protoreflect.FileDescriptor
 	files.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
@@ -160,5 +168,5 @@ func parseCatalogue(path string, raw []byte) ([]protoreflect.FileDescriptor, str
 		return true
 	})
 	sum := sha256.Sum256(raw)
-	return fds, "sha256:" + hex.EncodeToString(sum[:]), nil
+	return &msg, fds, "sha256:" + hex.EncodeToString(sum[:]), nil
 }

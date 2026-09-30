@@ -98,7 +98,7 @@ func runCataloguePublish(cmd *cobra.Command, cataloguePath, dest, promptsRoot st
 	if err != nil {
 		return fmt.Errorf("reading catalogue: %w", err)
 	}
-	fds, digest, err := parseCatalogue(cataloguePath, body)
+	_, fds, digest, err := parseCatalogue(cataloguePath, body)
 	if err != nil {
 		return err
 	}

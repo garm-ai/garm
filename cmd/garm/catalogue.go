@@ -13,6 +13,7 @@ import (
 
 	"github.com/garm-ai/garm/internal/catalogue"
 	"github.com/garm-ai/garm/internal/compile"
+	"github.com/garm-ai/garm/internal/compiler"
 	"github.com/garm-ai/garm/internal/manifest"
 )
 
@@ -148,6 +149,7 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 		PromptsRoot: promptsRoot(f.promptsRoot, f.inputFlags, m, dir),
 		Source:      source,
 		Inputs:      manifest.Provenance(inputs),
+		Taxonomy:    taxonomyOf(m),
 		Producer:    "garm/" + version(),
 		Compiler:    compile.Version(),
 	}
@@ -295,4 +297,20 @@ func promptsRoot(flag string, f inputFlags, m *manifest.Manifest, dir string) st
 	default:
 		return resolvePromptsRoot("", f.protoDir)
 	}
+}
+
+// taxonomyOf is the manifest's declared vocabulary in the shape the compiler and
+// the builder take, or nil when the manifest declares none.
+//
+// Nil rather than an empty Taxonomy, and the difference is the whole migration:
+// nil means "scrape the file-level proto options", which is what every tree
+// built before v0.22.0 depends on and what `--proto` will always mean, since a
+// synthesised one-entry manifest has no taxonomy to declare. A non-nil value
+// replaces the scrape entirely.
+func taxonomyOf(m *manifest.Manifest) *compiler.Taxonomy {
+	compartments, toolSets := m.Taxonomy.Decls()
+	if compartments == nil && toolSets == nil {
+		return nil
+	}
+	return &compiler.Taxonomy{Compartments: compartments, ToolSets: toolSets}
 }

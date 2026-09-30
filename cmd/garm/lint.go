@@ -52,7 +52,7 @@ func newLintCmd() *cobra.Command {
 			// function, so there is one implementation of which diagnostics
 			// are refusals. This command only reports: there is no artifact
 			// here to gate.
-			diags := catalogue.Check(fds, promptsRoot(promptsDir, f, m, dir))
+			diags := catalogue.Check(fds, promptsRoot(promptsDir, f, m, dir), taxonomyOf(m))
 			for _, d := range diags {
 				fmt.Fprintln(cmd.ErrOrStderr(), d.String())
 			}

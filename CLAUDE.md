@@ -53,7 +53,8 @@ Not enforced, and worth knowing: **which version** of the contract this binary
 pins is a plain `require` line, reviewed like any other. Nothing checks that it
 is the newest tag.
 
-**3. A catalogue's proto version comes from `go.mod` and from nowhere else.**
+**3. A catalogue's proto version comes from `go.mod` and from nowhere else; its
+VOCABULARY comes from `catalogue.yaml`.**
 
 `catalogue build` and `garm lint` compose their inputs from `catalogue.yaml`: a
 `path:` entry is a directory in the tree, a `module:` entry is proto packages read
@@ -81,6 +82,32 @@ Two consequences to keep straight:
   in `internal/manifest.notRequired` names the module, says the tree does not
   require it, and names the blank import. Keep that sentence — without it the
   invariant reads as a bug.
+- **Requiring a name and declaring one are two different acts, and v0.22.0 split
+  them.** A tool REQUIRES compartments by name on each method — the tool author's
+  business, unchanged. A deployment DECLARES the vocabulary, in `catalogue.yaml`'s
+  `taxonomy:`, and lint refuses a required name no entry declares. Declaring it
+  **replaces** the file-option scrape rather than joining it, because a union
+  preserves exactly the defect: adopting a tool used to extend the deployment's
+  access-control vocabulary, since the tool's own proto declared the word. The
+  deployment never said yes to the word; it said yes to the tool.
+
+  Three things to keep straight. `internal/compiler.Options.Taxonomy` nil means
+  scrape, and that is what keeps every unmigrated tree — and `--proto`, which
+  synthesises a manifest in memory — building exactly as before. **L28 and L29 go
+  quiet when it is non-nil**, and they are moot rather than skipped: they judge
+  proto declarations that nothing then reads. And **L7's reference half and L20
+  became whole-set rules**, warning under `PartialSet`, because the plugin sees one
+  directory and no manifest; that is what let a deployment delete its copy of an
+  adopted taxonomy proto, which `buf generate` used to refuse.
+
+  Not a contract change: the words reach the daemon on `Catalogue`'s existing
+  fields 3 and 4 either way, so garmd's registry construction is untouched.
+
+  **The manifest's list order is NOT the bit order**, whatever the composition
+  design's §7.3 says. `policy.NewRegistry` sorts the names before assigning bits
+  and its own doc comment says so. The determinism §7.3 wanted holds by the better
+  mechanism: reordering the YAML cannot move a bit at all.
+
 - **`garm catalogue init` reads, it never guesses.** It writes a manifest for a
   tree in the pre-manifest state, and every fact in the file came from something
   the tree already states: `buf.gen.yaml`'s input directories and its

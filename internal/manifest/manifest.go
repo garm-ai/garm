@@ -33,6 +33,9 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 )
 
 // Filename is the manifest's name by convention, looked for in the working
@@ -69,7 +72,69 @@ type Manifest struct {
 	// Prompts is where an agent's prompts.*.path resolves against, relative to
 	// the manifest's directory. Defaults to that directory.
 	Prompts string `yaml:"prompts"`
+
+	// Taxonomy is the access-control vocabulary of THIS deployment.
+	//
+	// Optional, and its absence is the pre-v0.22.0 behaviour: the vocabulary is
+	// scraped from file-level proto options and unioned by name across every
+	// file in the set. Declaring it here is how a deployment takes that back —
+	// see Taxonomy.
+	Taxonomy Taxonomy `yaml:"taxonomy"`
 }
+
+// Taxonomy is the compartments and tool sets a deployment declares.
+//
+// It exists because requiring a name and declaring one are two different acts
+// that the same annotation conflated. A tool REQUIRES compartments by name on
+// each method, which is the tool author's business and does not change. The
+// vocabulary those names come from is the DEPLOYMENT's, and until v0.22.0 it
+// was assembled by unioning a file-level proto option across every file in the
+// set, first declaration winning, in traversal order.
+//
+// Two things were wrong with that, and the second is the one that matters. A
+// deployment could not see its own access-control vocabulary in one place: the
+// bank's seven compartments came from three protos with three different owners.
+// And adopting a tool SILENTLY EXTENDED the vocabulary — adopt the web fetcher
+// and `internet` becomes a compartment of your bank, because the tool's proto
+// declares it. The deployment never said yes to the word; it said yes to the
+// tool. For the vocabulary that governs who may see what, that is the wrong
+// direction of consent.
+//
+// Declared here, an adopted tool naming a word this deployment has not declared
+// is an error the deployment resolves deliberately: declare the word, or do not
+// adopt the tool. It also catches a typo, which today is not an error but a
+// silently distinct compartment — and a silently distinct compartment is a tool
+// nobody can reach, refused for a reason nobody can see.
+//
+// It is NOT a contract change. The artifact carries these on `Catalogue`'s
+// existing fields 3 and 4; they are sourced from here rather than scraped, and
+// garmd's registry construction is untouched.
+type Taxonomy struct {
+	Compartments []Decl `yaml:"compartments"`
+	ToolSets     []Decl `yaml:"tool_sets"`
+}
+
+// Decl is one declared name and what it means.
+//
+// The description is required rather than optional, because the point of moving
+// the vocabulary here is that a deployment declares a word deliberately, and a
+// name with no description is the same act of omission in a new file. It
+// travels: into the artifact, into `garm claims check`'s report, and in front of
+// whoever is deciding which compartments a role should hold.
+type Decl struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+// Declared reports whether this manifest declares a vocabulary at all.
+//
+// One bool for both lists, deliberately. A manifest that declared compartments
+// and no tool sets would otherwise mean "my tool sets still come from protos",
+// and a vocabulary half in one place and half in another is worse than either
+// whole. So declaring either takes over both, and a deployment with no tool
+// sets writes `tool_sets: []` to say so — which reads as a decision, where an
+// absent key reads as an oversight.
+func (t Taxonomy) Declared() bool { return t.Compartments != nil || t.ToolSets != nil }
 
 // Entry is one line of `include`: a directory in this tree, or proto packages
 // from a module the tree requires.
@@ -103,6 +168,51 @@ type Entry struct {
 	// publish` resolves them, and until it does the value is recorded and
 	// unused.
 	Prompts string `yaml:"prompts"`
+}
+
+// validate refuses a vocabulary that cannot mean what it says.
+//
+// The name format is contracts' own ValidateDeclName rather than a second
+// implementation, because a declared name becomes four things at once — a Go
+// constant, a JWT claim value, a ledger field and a bit position — and the
+// exclusions it enforces are failure modes rather than style. Checking it HERE
+// is the improvement on checking it in a lint rule: the refusal points at the
+// line of YAML somebody typed.
+func (t Taxonomy) validate(name string) error {
+	if !t.Declared() {
+		return nil
+	}
+	for _, l := range []struct {
+		kind  string
+		key   string
+		decls []Decl
+	}{
+		{"compartment", "compartments", t.Compartments},
+		{"tool set", "tool_sets", t.ToolSets},
+	} {
+		seen := map[string]int{}
+		for i, d := range l.decls {
+			where := fmt.Sprintf("taxonomy.%s[%d]", l.key, i)
+			if err := policy.ValidateDeclName(d.Name); err != nil {
+				return fmt.Errorf("%s: %w", where, err)
+			}
+			if prev, dup := seen[d.Name]; dup {
+				return fmt.Errorf("%s: %s %q is declared twice (also taxonomy.%s[%d]). "+
+					"One entry per name: two would be one word with two meanings, and "+
+					"the second is the one nobody reads",
+					where, l.kind, d.Name, l.key, prev)
+			}
+			seen[d.Name] = i
+			if strings.TrimSpace(d.Description) == "" {
+				return fmt.Errorf("%s: %s %q has no description. The point of declaring a "+
+					"vocabulary here is that a deployment says yes to a word deliberately, "+
+					"and a name with nothing beside it is the same omission in a new file — "+
+					"somebody has to decide which roles hold %q and the description is what "+
+					"they read", where, l.kind, d.Name, d.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // IsModule answers which shape this entry is.
@@ -181,6 +291,10 @@ func (m *Manifest) validate() error {
 	if len(m.Include) == 0 {
 		return fmt.Errorf("%s: include is empty, so there is nothing to compose. A catalogue "+
 			"with nothing in it would start a daemon that serves nothing", m.Name)
+	}
+
+	if err := m.Taxonomy.validate(m.Name); err != nil {
+		return err
 	}
 
 	seenPath := map[string]Entry{}
@@ -279,4 +393,31 @@ func sortedCopy(s []string) []string {
 	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
+}
+
+// Decls is the taxonomy as the contract spells it, ready for the artifact's
+// fields 3 and 4 and for the lint registry.
+//
+// nil, nil when nothing is declared, which is how every caller distinguishes
+// "this deployment declares its vocabulary" from "scrape it from the protos" —
+// the same distinction Declared answers, in the shape the consumer needs.
+//
+// The conversion lives here rather than in the command that wires it, because
+// what a line of catalogue.yaml MEANS is this package's business, and a mapping
+// in cmd/ would be judgement in the layer that is only allowed to plumb.
+func (t Taxonomy) Decls() (compartments, toolSets []*toolv1.Decl) {
+	if !t.Declared() {
+		return nil, nil
+	}
+	conv := func(ds []Decl) []*toolv1.Decl {
+		// Non-nil even when empty: `tool_sets: []` is a deployment saying it
+		// has none, and an empty slice is how that survives into an artifact
+		// whose field 4 then reads as declared-and-empty rather than absent.
+		out := make([]*toolv1.Decl, 0, len(ds))
+		for _, d := range ds {
+			out = append(out, &toolv1.Decl{Name: d.Name, Description: d.Description})
+		}
+		return out
+	}
+	return conv(t.Compartments), conv(t.ToolSets)
 }

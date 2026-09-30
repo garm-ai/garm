@@ -122,12 +122,31 @@ include:
     packages: [web.v1]
 
 prompts: .
+
+taxonomy:                          # this deployment's own vocabulary
+  compartments:
+    - name: financial
+      description: Money movement and balances.
+  tool_sets:
+    - name: payments
+      description: Initiating and inspecting payments.
 ```
 
 An input is a directory in this tree or proto packages from a Go module the tree
 requires, and the deployment's own tree is one entry among the others rather than
 a privileged flag. `garm catalogue build`, with no arguments, is the whole
 command: the manifest is found by convention in the working directory.
+
+**The vocabulary is the deployment's.** A tool *requires* compartments by name on
+each method; a deployment *declares* which words exist, in `taxonomy:`. Lint then
+refuses a name no entry declares — so adopting a tool that needs `internet` is a
+decision somebody makes rather than a word that appears. Before v0.22.0 the
+vocabulary was unioned out of file-level proto options across every file in the
+set, which meant adopting a tool silently extended the vocabulary governing who
+may see what, and a deployment could not see its own in one place. Declaring the
+key replaces the scrape entirely, and a tree without it keeps the old behaviour.
+The words still travel to the daemon on the same two catalogue fields, so this is
+not a contract change.
 
 **The manifest names *what*; `go.mod` says *which version*.** Nothing new
 fetches anything — a tag is a Go module version, `go mod download` already maps

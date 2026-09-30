@@ -9,7 +9,6 @@ import (
 
 	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/internal/claimscheck"
-	"github.com/garm-ai/garm/internal/compiler"
 )
 
 func newClaimsCmd() *cobra.Command {
@@ -58,13 +57,26 @@ func runClaimsCheck(out, errOut io.Writer, policyPath, cataloguePath string) err
 		return err
 	}
 
-	fds, _, err := readCatalogue(cataloguePath)
+	cat, _, _, err := readCatalogue(cataloguePath)
 	if err != nil {
 		return err
 	}
 
-	declaredCompartments := declaredNames(compiler.DeclaredCompartments(fds))
-	declaredSets := declaredNames(compiler.DeclaredSets(fds))
+	// The ARTIFACT's own declaration, on Catalogue's fields 3 and 4, rather than
+	// a re-scrape of the descriptors' file options.
+	//
+	// It used to be the scrape, and that stopped being right in v0.22.0: a
+	// deployment may declare its vocabulary in `catalogue.yaml`, and such a
+	// catalogue has the words on fields 3 and 4 and in no proto option at all.
+	// This command would then have refused every migrated catalogue for
+	// declaring no vocabulary — the vacuity gate below firing on a catalogue
+	// whose vocabulary is right there in the bytes it was handed.
+	//
+	// It is also the better reading for a tree that has not migrated, because
+	// this is what garmd builds its registry from. A claims policy is checked
+	// against the words the daemon will actually honour.
+	declaredCompartments := declaredNames(cat.GetCompartments())
+	declaredSets := declaredNames(cat.GetToolSets())
 
 	// A catalogue declaring nothing makes every reference undeclared, which
 	// is indistinguishable from "0 problems" only if this command does
