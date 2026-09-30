@@ -392,6 +392,10 @@ func TestCatalogueSchemaVersionIgnoresTheRunnerNamespaces(t *testing.T) {
 	appendProto(t, dir, `
 import "garm/card/v1/card.proto";
 import "garm/meta/v1/meta.proto";
+// garm.tasks.v1, because the tool below declares a MODE_GRANT approval and
+// P1 requires the queue that serves it to be in the same catalogue. It
+// resolves from the linked registry, so there is no file to vendor.
+import "garm/tasks/v1/tasks.proto";
 message PayRequest {
   option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
   optional string reference = 1;
@@ -464,6 +468,10 @@ func TestTheCatalogueCarriesEveryToolsCards(t *testing.T) {
 	dir := fixture(t)
 	appendProto(t, dir, `
 import "garm/meta/v1/meta.proto";
+// garm.tasks.v1, because the tool below declares a MODE_GRANT approval and
+// P1 requires the queue that serves it to be in the same catalogue. It
+// resolves from the linked registry, so there is no file to vendor.
+import "garm/tasks/v1/tasks.proto";
 message PayRequest {
   option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
   optional string reference = 1;

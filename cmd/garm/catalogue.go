@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/garm-ai/garm/internal/catalogue"
 	"github.com/garm-ai/garm/internal/compile"
@@ -19,7 +22,8 @@ func newCatalogueCmd() *cobra.Command {
 		Short: "Build and inspect the artifact a daemon serves",
 		RunE:  func(c *cobra.Command, _ []string) error { return c.Help() },
 	}
-	cmd.AddCommand(newCatalogueBuildCmd(), newCatalogueDiffCmd(), newCataloguePublishCmd())
+	cmd.AddCommand(newCatalogueInitCmd(), newCatalogueBuildCmd(),
+		newCatalogueDiffCmd(), newCataloguePublishCmd())
 	return cmd
 }
 
@@ -52,9 +56,11 @@ func newCatalogueBuildCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runCatalogueBuild(cmd, buildFlags{
-				manifest:    manifestPath,
-				protoDir:    protoDir,
-				protoSet:    cmd.Flags().Changed("proto"),
+				inputFlags: inputFlags{
+					manifest: manifestPath,
+					protoDir: protoDir,
+					protoSet: cmd.Flags().Changed("proto"),
+				},
 				promptsRoot: promptsRoot,
 				out:         out,
 				source:      source,
@@ -79,16 +85,32 @@ func newCatalogueBuildCmd() *cobra.Command {
 	return cmd
 }
 
-// buildFlags is what the user typed, gathered so that resolving it into inputs
-// is one function with no cobra in it.
-type buildFlags struct {
+// inputFlags is how a command was told what to compose: the manifest, or the
+// deprecated single directory.
+//
+// Its own type because `catalogue build` and `lint` take the same three flags
+// and must resolve them the same way. They used not to — lint took one
+// directory and only the builder read a manifest — and the consequence was that
+// the rules needing the whole assembled set (A3's allowlist, and P1's required
+// platform package) saw a manifest's inputs from the builder and never from the
+// linter. So `garm lint` over a composed tree checked the deployment's own
+// protos and not what it adopts, which makes the linter's promise — that it
+// cannot pass and then fail at build time — false for exactly the rules that
+// are hardest to diagnose later.
+type inputFlags struct {
 	manifest string
 	protoDir string
 	// protoSet records whether --proto was given, which is what distinguishes
 	// "this tree has not migrated" from "somebody asked for the old behaviour".
 	// A default value cannot answer that, and getting it wrong would mean a
 	// tree with a manifest silently built from proto/ instead.
-	protoSet    bool
+	protoSet bool
+}
+
+// buildFlags is what the user typed, gathered so that resolving it into inputs
+// is one function with no cobra in it.
+type buildFlags struct {
+	inputFlags
 	promptsRoot string
 	out         string
 	source      string
@@ -105,7 +127,7 @@ type buildFlags struct {
 // the flags name, where the artifact goes, which stream each line belongs on,
 // and the exit code.
 func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
-	m, dir, origin, err := findManifest(f)
+	m, dir, origin, err := findManifest(f.inputFlags)
 	if err != nil {
 		return err
 	}
@@ -114,18 +136,8 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 	if source == "" {
 		source = m.Source
 	}
-	inputs, err := manifest.Resolve(cmd.Context(), dir, m, source)
+	set, fds, inputs, err := compose(cmd.Context(), dir, m, source)
 	if err != nil {
-		return err
-	}
-	set, fds, err := compile.Union(cmd.Context(), manifest.Roots(inputs))
-	if err != nil {
-		return err
-	}
-	// After the union and not before: which package an input declares is a fact
-	// about the descriptors, and a check against the manifest's own names would
-	// only report the manifest back to itself.
-	if err := manifest.Packages(inputs, set); err != nil {
 		return err
 	}
 
@@ -133,7 +145,7 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 		Set:         set,
 		Descriptors: fds,
 		Origin:      origin,
-		PromptsRoot: promptsRoot(f, m, dir),
+		PromptsRoot: promptsRoot(f.promptsRoot, f.inputFlags, m, dir),
 		Source:      source,
 		Inputs:      manifest.Provenance(inputs),
 		Producer:    "garm/" + version(),
@@ -172,8 +184,42 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 	return nil
 }
 
-// findManifest decides what this build composes: the manifest a flag named, the
-// one convention found, or the single directory --proto names.
+// compose resolves a manifest's inputs and compiles them as one set.
+//
+// Shared by `catalogue build` and `garm lint` so that the two see the same
+// assembled catalogue. That is not tidiness: the rules that need the whole set —
+// A3's agent allowlist, A9's audience and P1's required platform package —
+// cannot be checked against one input, and a linter that saw a subset of what
+// the builder composes would pass a tree the build then refuses. `garm lint`'s
+// whole promise is that it cannot pass and then fail later.
+//
+// The three refusals in here are the manifest's own and they belong to both
+// commands for the same reason: a module the tree does not require, two inputs
+// declaring one proto package, and a module entry naming a package the module
+// does not declare are all questions about the assembled set, and the linter is
+// the command people run first.
+func compose(ctx context.Context, dir string, m *manifest.Manifest, source string) (
+	*descriptorpb.FileDescriptorSet, []protoreflect.FileDescriptor, []*manifest.Input, error) {
+	inputs, err := manifest.Resolve(ctx, dir, m, source)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	set, fds, err := compile.Union(ctx, manifest.Roots(inputs))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// After the union and not before: which package an input declares is a fact
+	// about the descriptors, and a check against the manifest's own names would
+	// only report the manifest back to itself.
+	if err := manifest.Packages(inputs, set); err != nil {
+		return nil, nil, nil, err
+	}
+	return set, fds, inputs, nil
+}
+
+// findManifest decides what a command composes: the manifest a flag named, the
+// one convention found, or the single directory --proto names. Shared by
+// `catalogue build` and `garm lint`, which must agree about it.
 //
 // The precedence is the one that keeps `garm catalogue build` with no arguments
 // right in both worlds. A manifest is the primary input, so it wins whenever
@@ -185,7 +231,7 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 //
 // It returns the manifest, the directory paths inside it resolve against, and
 // the origin a refusal names.
-func findManifest(f buildFlags) (*manifest.Manifest, string, string, error) {
+func findManifest(f inputFlags) (*manifest.Manifest, string, string, error) {
 	switch {
 	case f.manifest != "" && f.protoSet:
 		return nil, "", "", fmt.Errorf("--manifest %s and --proto %s name two different inputs. "+
@@ -209,9 +255,9 @@ func findManifest(f buildFlags) (*manifest.Manifest, string, string, error) {
 		}
 		if _, err := os.Stat(f.protoDir); err != nil {
 			return nil, "", "", fmt.Errorf("no %s here and no %s/ either: a catalogue is "+
-				"composed from the inputs a manifest declares, so there is nothing to build. "+
-				"Write one, or name a directory with --proto",
-				manifest.Filename, f.protoDir)
+				"composed from the inputs a manifest declares, so there is nothing to "+
+				"compose. Write one with `garm catalogue init`, or name a directory with "+
+				"--proto", manifest.Filename, f.protoDir)
 		}
 	}
 	// The single-input case, spelled as what it is: a manifest with one path
@@ -240,10 +286,10 @@ func singleTree(dir string) *manifest.Manifest {
 // A prompt that a COMPOSED agent pins lives in ITS module and is not reachable
 // from any of these; `catalogue publish` resolves those per input, and the entry
 // key that says where is parsed and carried already.
-func promptsRoot(f buildFlags, m *manifest.Manifest, dir string) string {
+func promptsRoot(flag string, f inputFlags, m *manifest.Manifest, dir string) string {
 	switch {
-	case f.promptsRoot != "":
-		return f.promptsRoot
+	case flag != "":
+		return flag
 	case m.Prompts != "":
 		return filepath.Join(dir, m.Prompts)
 	default:

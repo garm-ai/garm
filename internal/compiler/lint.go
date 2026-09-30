@@ -66,7 +66,7 @@ type Options struct {
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
 // vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, A9, A10, C1,
-// C8, C9 and O1)
+// C8, C9, O1 and P1)
 // over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
@@ -116,6 +116,13 @@ type Options struct {
 // the catalogue, so it runs beside A3 and warns off with it under
 // PartialSet; A10 needs only the tool's own service, so it runs in the
 // per-tool loop with everything else.
+//
+// P1 (required platform packages, lint_required.go) is the third
+// catalogue-scoped rule, and it opens a new letter because it judges neither
+// an agent nor a card: a declaration that depends on a capability another
+// PACKAGE provides must find that package in the same catalogue. It warns off
+// under PartialSet for the same reason A3 does — one directory cannot answer a
+// question about the assembled set — and it is an error everywhere else.
 func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out := lintFieldAndShapeRules(fds)
 	out = append(out, lintServiceCoverage(fds)...)
@@ -123,6 +130,7 @@ func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	out = append(out, LintEffects(tools)...)
 	out = append(out, lintMaterialFields(tools)...)
 	out = append(out, lintRunnerFields(tools)...)
+	out = append(out, lintRequiredPackages(fds, tools, opts)...)
 	out = append(out, lintAgents(fds, opts)...)
 	out = append(out, lintCards(fds)...)
 	out = append(out, lintSynthesisedNames(fds)...)

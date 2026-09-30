@@ -5,7 +5,7 @@ compiles governed tool declarations, refuses bad ones, and builds the catalogue
 a runtime serves. It is **not** the server; that is `garmd`. It is **not** the
 contract; that is `garm-ai/contracts`.
 
-## The three invariants that define this repository
+## The four invariants that define this repository
 
 **1. Nothing here may depend on `garmd`.**
 
@@ -55,9 +55,9 @@ is the newest tag.
 
 **3. A catalogue's proto version comes from `go.mod` and from nowhere else.**
 
-`catalogue build` composes its inputs from `catalogue.yaml`: a `path:` entry is a
-directory in the tree, a `module:` entry is proto packages read out of the Go
-module cache. The manifest names **what** to include; `go.mod` says **which
+`catalogue build` and `garm lint` compose their inputs from `catalogue.yaml`: a
+`path:` entry is a directory in the tree, a `module:` entry is proto packages read
+out of the Go module cache. The manifest names **what** to include; `go.mod` says **which
 version**, because the generated Go already comes from that requirement. So
 `internal/manifest` **refuses a module the tree does not require**, and a
 `version:` key is readability that has to agree with what the module graph
@@ -81,6 +81,30 @@ Two consequences to keep straight:
   in `internal/manifest.notRequired` names the module, says the tree does not
   require it, and names the blank import. Keep that sentence — without it the
   invariant reads as a bug.
+- **`garm catalogue init` reads, it never guesses.** It writes a manifest for a
+  tree in the pre-manifest state, and every fact in the file came from something
+  the tree already states: `buf.gen.yaml`'s input directories and its
+  `exclude_paths`, the compiled descriptor's own package, and the copy's own
+  `go_package` resolved to a module by `go list`. A copied package whose module
+  the tree does not require gets **no entry and a report** — inventing one would
+  be inventing a version, which is the whole thing the invariant forbids.
+
+**4. A rule about the whole catalogue is checked against the whole catalogue.**
+
+`P1` (required platform packages), `A3` (an agent's allowlist) and `A9` (the
+audience of what it names) cannot be answered from one directory. So they live in
+the group `compiler.Options.PartialSet` turns into warnings: the protoc plugin,
+which buf invokes once per directory, **says it did not check** and names the
+commands that do. `garm lint` and `garm catalogue build` see the whole assembled
+set and enforce — which is why both go through `cmd/garm.compose` and take the
+same `inputFlags`. A linter that saw a subset of what the builder composes would
+pass a tree the build then refuses, and that is precisely the class of failure
+these rules exist to catch early.
+
+One inference IS made under `PartialSet`, and only one: presence is monotone, so
+a partial run that CAN see `garm.tasks.v1` concludes P1 is satisfied rather than
+warning about a question it has already answered. The negative direction does not
+hold and does not conclude.
 
 ## What lives where
 
@@ -90,7 +114,7 @@ Two consequences to keep straight:
 | `cmd/protoc-gen-garm-go/` | The plugin under its conventional name; one implementation, two binaries |
 | `internal/catalogue/` | Catalogue assembly: the lint gate, the per-package descriptor hashes, the synthesised card endpoints, the marshalled artifact. It decides; the command prints |
 | `internal/compile/` | Proto source to descriptors, in process. `linked.go` blank-imports the contract's generated packages so `garm/tool/v1/tool.proto` and its siblings resolve from `protoregistry.GlobalFiles` — **that is why this repository holds no protos and needs none.** Do not remove those imports |
-| `internal/manifest/` | `catalogue.yaml`: what it may say, what the module graph resolves each entry to, and which input contributed which proto package. Shells out to `go list -m`, deliberately — see the invariant below |
+| `internal/manifest/` | `catalogue.yaml`: what it may say, what the module graph resolves each entry to, which input contributed which proto package, and — in `adopt.go` — the manifest a pre-manifest tree describes. Shells out to `go list`, deliberately — see the invariants above |
 | `internal/compiler/` | Loads protos, lints them, emits code |
 | `internal/plugin/` | The plugin entry point, shared by the CLI and the conventionally named binary |
 | `internal/policydiff/` | What `catalogue diff` compares |

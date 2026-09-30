@@ -10,26 +10,45 @@ Gaps in the contract itself are in
 
 ## What the manifest does not do yet
 
-`catalogue build` composes from `catalogue.yaml` since v0.20.0. Four things the
-design asks of it are not here, in the order they land.
+`catalogue build` composes from `catalogue.yaml` since v0.20.0; `catalogue init`
+writes one, `garm lint` reads one and P1 refuses a catalogue with no queue for the
+approvals it promises since v0.21.0. What the design still asks for, and the two
+rows of §6's table P1 cannot check:
 
-- **`garm catalogue init` does not exist.** Every deployment in the estate is in
-  the pre-manifest state — adopted packages copied into `proto/`, a matching
-  `exclude_paths` entry, a drift gate watching the copy — and the manifest that
-  describes such a tree has to be written by hand today. Its real job is
-  migration rather than scaffolding: read the tree, write a `path:` entry and a
-  `module:` entry for each copied package it can match to a requirement in
-  `go.mod`, and **report rather than guess** where it cannot, because a copied
-  package `go.mod` does not require is a tree compiling against descriptors it
-  does not depend on, which is a defect and not an entry to invent.
-- **The required-platform-package rule is not enforced.** A declaration that says
-  `approval { mode: MODE_GRANT }` or declares a task of `Kind.ASK` needs
-  `garm.tasks.v1` in the same catalogue, or the call parks on a task nobody can
-  open and the only symptom is an absence. The manifest is what makes that
-  checkable — the whole assembled set is visible here where the protoc plugin
-  sees one directory — and it is unwritten. It lands with the adoption it
-  refuses: the rule alone would break the bank's current catalogue, which is the
-  rule working and still a broken build.
+- **The `Kind.ASK` row of §6's table is not enforceable, and the design says it
+  is.** §6.1 asserts that `MODE_GRANT` and `Kind.ASK` are both already
+  annotations. Only the first is: `garm.tasks.v1.Kind.ASK` is the value of
+  `CreateTaskRequest.kind`, set by the runner at run time, and the DECLARATION
+  that was to carry it is the agent manifest's `asks` list — specified in the
+  cards-and-tasks design and absent from `garm.agent.v1.AgentPolicy`, whose seven
+  fields are mode, principal, model, bounds, prompts, tools and output_rules. So
+  an agent that puts a question to a person is not held to needing a queue to put
+  it in. It becomes one more row in `internal/compiler.requirementsOf` when the
+  contract grows `asks`.
+- **The artefact row of that table is specified and unenforceable.** "Produces an
+  artefact reference" requires `garm.artefacts.v1`, and nothing in
+  `garm.tool.v1` says a tool produces one. It needs a declaration to hang off —
+  most likely a response field typed as an artefact reference, which the artefact
+  store's own contract will introduce. Inferring one (a field named
+  `artefact_id`, say) would be this linter guessing at governance, so P1 leaves
+  it alone, and `garm init`'s scaffolded manifest does not name a module for it
+  either, because neither the package nor `artefactd` exists yet.
+- **`catalogue init` matches a copy to a module through its `go_package`, so a
+  copy whose generated Go is not in the module graph reports as unpinned.** The
+  copy's own `go_package` names an import path and `go list` maps that to a
+  module, which is exact and is the go command's answer rather than a prefix
+  search of the requirements. The case it cannot see is a module that is required
+  and whose protos are there while the generated Go package at that import path
+  is not — a proto-only module, or a tree whose Go moved. The report then says
+  the tree requires no module providing that path, which is true of the path and
+  not of the module. Nothing walks the prefixes, because that would be a second
+  module resolver.
+- **`catalogue init` writes the manifest and deletes nothing.** The copies, the
+  `exclude_paths` entries and the drift gates that exist only because of them are
+  named in the report and left on disk. Until the copies are gone the tree is in
+  both states at once and `catalogue build` refuses it by name — two inputs
+  declaring one proto package — which is that check working, and which means the
+  written manifest describes the tree as it will be rather than as it is.
 - **The taxonomy is still scraped from proto options.** `compartments` and
   `tool_sets` come from a file-level option unioned across every file in the set,
   first declaration winning, which means adopting a tool silently extends the
@@ -61,16 +80,16 @@ design asks of it are not here, in the order they land.
   visible: `Provenance.compiler` and `producer` identify the binary, so a digest
   that does not reproduce is diagnosable, but the artifact does not state the
   disagreement.
-- **`garm lint` still takes one directory.** Only `catalogue build` composes. The
-  rules that need the whole assembled set — A3's allowlist, and the required
-  platform package when it lands — therefore see a manifest's inputs from the
-  builder and never from the linter, so `garm lint` over a composed tree checks
-  the deployment's own protos and not what it adopts. Lint learns the manifest
-  with the rule that needs it.
-- **`--proto` is deprecated in its help text and warns nothing at run time.** A
-  warning on stderr would change the output of every pipeline that still passes
-  it, which is all of them, so the deprecation is documentation until the flag is
-  removed.
+- **`--proto` is deprecated in its help text and warns nothing at run time**, on
+  `garm lint` as well as on `catalogue build`. A warning on stderr would change
+  the output of every pipeline that still passes it, which is all of them, so the
+  deprecation is documentation until the flag is removed.
+- **A tree with no `go.mod` cannot pin anything, and only `catalogue init` says so
+  kindly.** `Resolve` refuses a manifest with module entries when there is no
+  go.mod in the manifest's directory or any directory above it — up, because a
+  deployment is not always its own module and the bank's go.mod is at the root of
+  `garm-ai/examples`. `catalogue init` reports the same state per copy instead of
+  passing the go command's own wording through.
 
 ## Commands that do not exist
 
@@ -88,6 +107,11 @@ design asks of it are not here, in the order they land.
   `output_rules[].expr` parses as CEL and nothing more. What variables an
   output rule sees is not fixed by any design document, so type-checking one
   here would invent that contract in a lint rule.
+- **P1 is one row of §6's table, and the group is `L`, `A`, `C`, `O` and now
+  `P`.** The letter is new because the rule judges neither an agent nor a card: a
+  declaration that depends on a capability another PACKAGE provides must find that
+  package in the same catalogue. New capabilities add rows to
+  `requirementsOf`, not rules. Two rows are missing and both are above.
 - **Six card and ownership rules are unwritten.** C1 (with C3 folded in), C8,
   C9 and O1 exist. Not written: C2 (`Input.id` against the decision message),
   C4 and C6 (queries and `card_role`), C5 (a wall-of-facts warning), C7
@@ -152,16 +176,21 @@ design asks of it are not here, in the order they land.
 
 ## Publishing
 
-- **Prompt verification is still in the command package.** `catalogue build`'s
-  assembly moved to `internal/catalogue` in v0.19.1 under the rule in
-  `CLAUDE.md` — the package decides, the command prints — and `publish` did not
-  follow it. `verifyPrompts` already takes values and returns values, so nothing
-  about it is untestable where it sits, and its next change is not cosmetic: a
-  composed catalogue resolves each prompt against the root of the *input* that
-  contributed its agent, so the one `--prompts-root` becomes a root per resolved
-  input. `manifest.Input` is that type as of v0.20.0 and it carries the entry's
-  `prompts:` key, so the move is unblocked and not done: `publish` re-reads the
-  manifest for nothing today and resolves every prompt against one root.
+- **Prompt verification is still in the command package, and a composed agent's
+  prompts are still resolved against one root.** `catalogue build`'s assembly
+  moved to `internal/catalogue` in v0.19.1 under the rule in `CLAUDE.md` — the
+  package decides, the command prints — and `publish` did not follow it.
+  `verifyPrompts` already takes values and returns values, so nothing about it is
+  untestable where it sits, and its next change is not cosmetic: a composed
+  catalogue resolves each prompt against the root of the *input* that contributed
+  its agent, so the one `--prompts-root` becomes a root per resolved input.
+  Nothing about that fell out of v0.21.0. `publish` reads a built
+  **artifact** — not the manifest — and the artifact now records which module and
+  version contributed each proto package, so the module's directory is reachable
+  from it; what is not in the artifact is the entry's `prompts:` sub-path, which
+  lives only in `catalogue.yaml`. So the work is a manifest read that `publish`
+  does not do today, plus the move, and `manifest.Input` is the type it lands
+  on.
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

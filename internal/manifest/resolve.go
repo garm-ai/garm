@@ -154,10 +154,11 @@ func listModules(ctx context.Context, dir string, paths []string) (map[string]mo
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		return nil, fmt.Errorf("no go.mod in %s, and the manifest includes %d module(s): "+
-			"a module entry names WHAT to include and go.mod says WHICH VERSION, so a tree "+
-			"with no module graph has nothing to pin the descriptors to", dir, len(paths))
+	if !inAModule(dir) {
+		return nil, fmt.Errorf("no go.mod in %s or any directory above it, and the manifest "+
+			"includes %d module(s): a module entry names WHAT to include and go.mod says "+
+			"WHICH VERSION, so a tree with no module graph has nothing to pin the "+
+			"descriptors to", dir, len(paths))
 	}
 	out, err := run(ctx, dir, append([]string{"go", "list", "-m", "-e", "-json"}, paths...)...)
 	if err != nil {
@@ -176,6 +177,36 @@ func listModules(ctx context.Context, dir string, paths []string) (map[string]mo
 		mods[info.Path] = info
 	}
 	return mods, nil
+}
+
+// inAModule reports whether dir is inside a Go module, by walking up for a
+// go.mod the way the go command itself does.
+//
+// Up and not just in dir, because a deployment is not always its own module. The
+// bank is one directory of `garm-ai/examples`, whose go.mod is at the repository
+// root and whose requirements are the pins for every example in it — so a
+// manifest beside the bank's protos is the normal case, not an odd one, and
+// stopping at dir would refuse every module entry it wrote.
+//
+// This check only decides which MESSAGE a tree with no module graph gets: `go
+// list -m` walks up on its own, so the resolution below is unaffected either
+// way. It is here because "no go.mod, and the manifest names modules" is worth
+// saying plainly rather than passing the go command's own wording through.
+func inAModule(dir string) bool {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	for {
+		if fi, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil && !fi.IsDir() {
+			return true
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return false
+		}
+		abs = parent
+	}
 }
 
 func resolveLocal(dir string, e Entry, source string) (*Input, error) {

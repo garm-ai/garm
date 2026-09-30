@@ -3,6 +3,11 @@ package conformance.c1;
 import "buf/validate/validate.proto";
 import "garm/card/v1/card.proto";
 import "garm/meta/v1/meta.proto";
+// The task queue, because this case declares a MODE_GRANT approval and P1
+// requires the package that serves it to be in the same catalogue: without
+// it the call parks on a task nobody can open. The file resolves from the
+// linked registry, so there is nothing on disk to keep in step.
+import "garm/tasks/v1/tasks.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/c1;c";
 

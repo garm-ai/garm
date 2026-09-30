@@ -17,7 +17,8 @@ a module this one depends on — see [The contract is a dependency](#the-contrac
 ```
 garm init                scaffold a proto tree, annotations vendored in
 garm gen                 run the code generators (a thin wrapper on `buf generate`)
-garm lint                check your tool declarations against the L, A, C and O rules
+garm lint                check the catalogue.yaml inputs against the L, A, C, O and P rules
+garm catalogue init      write the catalogue.yaml that describes this tree
 garm catalogue build     compose the catalogue.yaml inputs into the artifact garmd loads
 garm catalogue publish   put it, and the prompts it pins, on an object store
 garm catalogue diff      what changed between two catalogues, in policy terms
@@ -26,9 +27,9 @@ garm plugin              the protoc plugin, so a buf.gen.yaml can name this bina
 garm version             what you are running
 ```
 
-`garm init` writes a proto tree and vendors the four annotation files into
-`third_party/proto/`, so an author imports `"garm/tool/v1/tool.proto"` by its
-real path without reaching a registry. `garm gen` then shells out to `buf`,
+`garm init` writes a proto tree, a `catalogue.yaml` and the four annotation
+files into `third_party/proto/`, so an author imports `"garm/tool/v1/tool.proto"`
+by its real path without reaching a registry. `garm gen` then shells out to `buf`,
 which is a **runtime** dependency of this tool: garm drives buf over your
 protos, and buf invokes this binary back as a local plugin.
 
@@ -156,6 +157,51 @@ it contributed. That is what makes a catalogue a bill of materials — "which
 version of the payment tool's contract is this deployment running" is a question
 the artifact answers, where before it was knowable only from a commit.
 
+### Writing the manifest: `garm catalogue init`
+
+A tree that predates the manifest already states everything the file says, spread
+across three places, so `garm catalogue init` reads it out of them rather than
+asking anyone to retype it: `buf.gen.yaml`'s input directories become `path:`
+entries, its `exclude_paths` name the adopted copies, each copy's own
+`go_package` says which module it came from, and `go list` resolves that to a
+requirement. Then the copies can be deleted, along with the `exclude_paths` and
+the drift gate that exist only because of them.
+
+**It does not guess.** Every fact it writes was read from something: which
+package a copy declares comes from the compiled descriptor and not from the
+directory name. When a copy's module is one the tree does **not** require, §2's
+invariant admits no entry — there is no version to pin it to — so there is no
+entry, the copy is left exactly as it is, and the report names it and exits
+non-zero. A tree in that state compiles its declarations against descriptors it
+does not depend on, which is a defect rather than something to encode. It also
+refuses to overwrite an existing `catalogue.yaml` without `--force`, because a
+hand-edited manifest is the authority and a generator is not.
+
+### Required platform packages, and why lint reads the manifest
+
+A declaration can depend on a capability another **package** provides, and then
+the catalogue has to declare that package. Rule **P1**: a tool declaring
+`approval { mode: MODE_GRANT }` requires `garm.tasks.v1` in the same catalogue,
+and the build refuses one that does not have it.
+
+This is a real outage rather than a tidiness rule. On 2026-09-29 `tasksd` ran all
+day serving eight tools while `payments.v1.initiate_payment` declared MODE_GRANT
+in a catalogue that did not declare `garm.tasks.v1`. Nothing was wrong with
+either half: the daemon mounted the catalogue, the service answered its subject,
+and there was no route between them — so the call parked on a task nobody could
+open, decide or see, the runner waited out the window and reported that no
+approval had arrived, which is indistinguishable from a person declining to act.
+Build time is the only place that is cheap to catch.
+
+Whether the package is present is a question about the **assembled** catalogue,
+not about one declaration, which is why `garm lint` now takes the same inputs
+`catalogue build` does — a manifest found by convention, `-f` to name one
+elsewhere, and `--proto` as the deprecated single-directory shorthand. The same
+is true of A3's agent allowlist and A9's audience: a linter that saw only the
+deployment's own directory would pass a tree the build then refuses. The protoc
+plugin, which buf invokes once per directory, cannot answer any of the three and
+says it did not check rather than passing silently.
+
 ### The flags
 
 | | |
@@ -224,11 +270,13 @@ one, and fail rather than skip when `CI` is set.
 
 ## Status
 
-Shipped: `init`, `gen`, `lint`, `catalogue build|diff|publish`, `claims check`,
-`plugin`, `version`. `catalogue build` composes from `catalogue.yaml` since
-**v0.20.0**; what the manifest does not do yet — `garm catalogue init` to write
-one, the required-platform-package rule, the taxonomy, and `publish` resolving a
-composed agent's prompts out of its own module — is in KNOWN-GAPS.md. Thirty-two tool lint rules (the L series), seven agent rules
-(A1–A5, A9, A10), three card rules (C1, C8, C9) and one ownership rule (O1, a
-warning), with twenty conformance cases. What is still missing is in
-KNOWN-GAPS.md.
+Shipped: `init`, `gen`, `lint`, `catalogue init|build|diff|publish`,
+`claims check`, `plugin`, `version`. `catalogue build` composes from
+`catalogue.yaml` since **v0.20.0**; `catalogue init` writes one, `garm lint`
+reads one and the required-platform-package rule is enforced since **v0.21.0**.
+What the manifest still does not do — the taxonomy, and `publish` resolving a
+composed agent's prompts out of its own module — is in KNOWN-GAPS.md.
+Thirty-two tool lint rules (the L series), seven agent rules (A1–A5, A9, A10),
+three card rules (C1, C8, C9), one ownership rule (O1, a warning) and one
+platform-package rule (P1), with twenty conformance cases. What is still missing
+is in KNOWN-GAPS.md.

@@ -91,6 +91,12 @@ include:
 // same bytes as the manifest that replaces it.
 func TestBuildFallsBackToTheProtoDirectory(t *testing.T) {
 	dir := fixture(t)
+	// `garm init` writes a manifest now, so the pre-manifest state has to be
+	// made rather than assumed: with the file in place this test would compare a
+	// manifest against a manifest and the fallback would go unexercised.
+	if err := os.Remove(filepath.Join(dir, manifest.Filename)); err != nil {
+		t.Fatal(err)
+	}
 	viaFallback := filepath.Join(t.TempDir(), "fallback.binpb")
 	if _, _, err := buildIn(t, dir, "-o", viaFallback); err != nil {
 		t.Fatalf("a tree with no manifest did not build: %v", err)

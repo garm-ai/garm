@@ -394,6 +394,17 @@ func TestLintEffectsAcceptsAWellFormedDestructiveTool(t *testing.T) {
 		methodSpec{name: "ArchiveRestore", tool: undo},
 	)
 	for _, d := range compiler.Lint(fds) {
+		// P1 is excluded, and it is the one exclusion in this file. It is a
+		// WHOLE-SET rule: a MODE_GRANT approval requires garm.tasks.v1 in the
+		// same catalogue, and this fixture is one synthetic package built in Go
+		// with no queue in it and no way to put one there. Excluding it here
+		// keeps this test about what it is named for — that no rule in the
+		// effects set is accidentally unconditional — rather than silently
+		// asserting something about composition. P1's own tests are in
+		// lint_required_test.go.
+		if d.Rule == "P1" {
+			continue
+		}
 		if !d.Warn {
 			t.Fatalf("well-formed destructive fixture produced an error: %+v", d)
 		}
