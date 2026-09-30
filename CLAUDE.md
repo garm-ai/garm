@@ -5,7 +5,7 @@ compiles governed tool declarations, refuses bad ones, and builds the catalogue
 a runtime serves. It is **not** the server; that is `garmd`. It is **not** the
 contract; that is `garm-ai/contracts`.
 
-## The two invariants that define this repository
+## The three invariants that define this repository
 
 **1. Nothing here may depend on `garmd`.**
 
@@ -53,6 +53,35 @@ Not enforced, and worth knowing: **which version** of the contract this binary
 pins is a plain `require` line, reviewed like any other. Nothing checks that it
 is the newest tag.
 
+**3. A catalogue's proto version comes from `go.mod` and from nowhere else.**
+
+`catalogue build` composes its inputs from `catalogue.yaml`: a `path:` entry is a
+directory in the tree, a `module:` entry is proto packages read out of the Go
+module cache. The manifest names **what** to include; `go.mod` says **which
+version**, because the generated Go already comes from that requirement. So
+`internal/manifest` **refuses a module the tree does not require**, and a
+`version:` key is readability that has to agree with what the module graph
+resolves — a disagreement is an error, never a precedence rule.
+
+The failure this forbids is the one that took the plane offline on 2026-09-29: a
+tree compiled against one tag while declaring the descriptors of another serves a
+tool whose wire shape does not match its own generated code, and it presents at
+run time as a mount that will not complete.
+
+Two consequences to keep straight:
+
+- **`go list -m` is the answer, not a parse of `go.mod`.** Minimal version
+  selection, a `replace`, a workspace and an indirect requirement all decide the
+  version that is actually built. Reimplementing that here would be a second
+  module resolver, wrong in ways nobody notices until the versions disagree. Do
+  not replace the exec with `golang.org/x/mod`.
+- **A deployment may declare a tool it does not serve**, and `go mod tidy`
+  removes a requirement nothing imports. The answer is an explicit blank import
+  in the adopting tree, and this repository's job is only to say so: the refusal
+  in `internal/manifest.notRequired` names the module, says the tree does not
+  require it, and names the blank import. Keep that sentence — without it the
+  invariant reads as a bug.
+
 ## What lives where
 
 | | |
@@ -61,6 +90,7 @@ is the newest tag.
 | `cmd/protoc-gen-garm-go/` | The plugin under its conventional name; one implementation, two binaries |
 | `internal/catalogue/` | Catalogue assembly: the lint gate, the per-package descriptor hashes, the synthesised card endpoints, the marshalled artifact. It decides; the command prints |
 | `internal/compile/` | Proto source to descriptors, in process. `linked.go` blank-imports the contract's generated packages so `garm/tool/v1/tool.proto` and its siblings resolve from `protoregistry.GlobalFiles` — **that is why this repository holds no protos and needs none.** Do not remove those imports |
+| `internal/manifest/` | `catalogue.yaml`: what it may say, what the module graph resolves each entry to, and which input contributed which proto package. Shells out to `go list -m`, deliberately — see the invariant below |
 | `internal/compiler/` | Loads protos, lints them, emits code |
 | `internal/plugin/` | The plugin entry point, shared by the CLI and the conventionally named binary |
 | `internal/policydiff/` | What `catalogue diff` compares |
@@ -96,11 +126,13 @@ Two consequences worth keeping straight:
   tree that did not lint, and nothing a caller can pass in to skip it.
   `catalogue.Check` exists for `garm lint`, which reports and gates nothing.
 
-One deliberate exception, because it is about to move anyway: `publish`'s prompt
-verification is still in `cmd/garm/publish.go`. It already takes values and
-returns values, so nothing is untestable there, and the manifest work turns its
-single `--prompts-root` into a root per resolved input — a type that does not
-exist yet. KNOWN-GAPS.md records it.
+One deliberate exception: `publish`'s prompt verification is still in
+`cmd/garm/publish.go`. It already takes values and returns values, so nothing is
+untestable there, and its next change is not cosmetic — a composed agent's
+prompts live in ITS module, so the single `--prompts-root` becomes a root per
+resolved input. `manifest.Input` is now that type and an entry's `prompts:` key
+is parsed and carried, so the move is unblocked rather than done. KNOWN-GAPS.md
+records it.
 
 ## buf runs outwards now
 

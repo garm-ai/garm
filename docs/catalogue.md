@@ -122,6 +122,31 @@ break from the outside.
 
 ## Building one
 
+A catalogue is composed from the inputs `catalogue.yaml` declares, so the command
+takes no argument naming a directory:
+
+```console
+$ cat catalogue.yaml
+schema: v1
+name: acme
+include:
+  - path: proto
+  - module: github.com/garm-ai/contracts
+    packages: [garm.tasks.v1]
+
+$ garm catalogue build --source "acme/tools@$(git rev-parse --short HEAD)"
+```
+
+A `module:` entry reads its protos out of the Go module cache at the version the
+tree's `go.mod` resolves — **the manifest names what, `go.mod` says which
+version** — so an adopted package needs no copy in `proto/` and the artifact
+records where each package came from. The manifest and its rules are in
+[the README](../README.md#the-catalogue).
+
+`--proto` still builds from one directory and is **deprecated**: it is the
+single-input case, turned into a manifest with one `path:` entry before anything
+else happens, so it produces the same bytes as the manifest that replaces it.
+
 ```console
 $ garm catalogue build --proto proto -o catalogue.binpb --source "acme/tools@$(git rev-parse --short HEAD)"
 wrote catalogue.binpb
@@ -139,9 +164,10 @@ outage rather than a build error.
 
 ### Prompts are resolved beside the proto tree
 
-An agent's `prompts.*.path` is relative to the directory that **contains** the
-proto tree — the parent of `--proto`, which for the default `--proto proto` is
-the directory you are standing in. A repository laid out as
+An agent's `prompts.*.path` is relative to the manifest's `prompts:` directory,
+or — for a `--proto` build — to the directory that **contains** the proto tree,
+the parent of `--proto`, which for the default `--proto proto` is the directory
+you are standing in. A repository laid out as
 
 ```
 proto/bank/agents/v1/support_assistant.proto

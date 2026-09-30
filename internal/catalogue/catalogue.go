@@ -17,11 +17,14 @@
 // output of a CLI.
 //
 // Assembly is also the one concern the builder and the protoc plugin do not
-// already share through internal/compiler, and it is about to grow: a
-// catalogue.yaml manifest, module resolution, input merging and collision
-// detection all land in FRONT of Build, producing the Request it already
-// takes. A Request that describes a compiled tree rather than a directory is
-// what lets them.
+// already share through internal/compiler, and the manifest grew in FRONT of it
+// exactly as that shape predicted: internal/manifest reads catalogue.yaml,
+// resolves each module through the module graph, refuses a module the tree does
+// not require and refuses two inputs declaring one proto package, and
+// compile.Union compiles the lot as one set. Build still takes a compiled tree
+// and knows nothing about where its files came from — except for the resolved
+// inputs it stamps into provenance, which arrive as values and which it sorts
+// into the order the contract specifies.
 package catalogue
 
 import (
@@ -82,9 +85,9 @@ type Request struct {
 	Descriptors []protoreflect.FileDescriptor
 
 	// Origin names where these declarations came from, for the message a
-	// refusal has to print. Today that is the --proto directory; once a
-	// manifest composes several inputs it will be the manifest. Nothing here
-	// opens it: this package reads no files.
+	// refusal has to print: the manifest that composed them, or the --proto
+	// directory for a tree that has not migrated. Nothing here opens it — this
+	// package reads no files.
 	Origin string
 
 	// PromptsRoot is the directory an agent's prompts.*.path resolves against,
@@ -96,6 +99,22 @@ type Request struct {
 	// Source is free-form provenance: a repository and commit, a pipeline id.
 	// Never parsed.
 	Source string
+
+	// Inputs is every input the tree was composed from, which is what makes the
+	// artifact a bill of materials: producer, compiler and source all describe
+	// the BUILD and none of them says what went into it.
+	//
+	// Handed in rather than derived, because deciding what an input IS means
+	// running `go list -m` and reading the module cache, and this package opens
+	// no files. What this package owns is the ORDER, below.
+	//
+	// Empty is permitted and means "this builder did not say", which is what
+	// every catalogue written before the field says. It never means "composed
+	// from nothing": that is not a state, because a build with no declarations
+	// has nothing to compile and is refused above. `--proto` therefore stamps
+	// ONE local input rather than none — it is the single-input case of a
+	// manifest, not the absence of one.
+	Inputs []*cataloguev1.Input
 
 	// Producer and Compiler are stamped into the artifact's provenance. The
 	// producer is the binary that built it and the compiler is the proto
@@ -232,6 +251,7 @@ func Build(req Request) (*Result, Diagnostics, error) {
 			Producer: req.Producer,
 			Compiler: req.Compiler,
 			Source:   req.Source,
+			Inputs:   canonicalInputs(req.Inputs),
 		},
 	}
 	if !req.BuiltAt.IsZero() {
@@ -261,4 +281,81 @@ func Build(req Request) (*Result, Diagnostics, error) {
 		ToolNames:        names,
 		SynthesisedCards: synthesised,
 	}, diags, nil
+}
+
+// canonicalInputs puts the resolved inputs in the order the artifact carries
+// them, which is the order garm.catalogue.v1.Provenance.inputs specifies and not
+// this package's preference.
+//
+// Order is part of the artifact rather than presentation. A catalogue is
+// byte-reproducible by requirement, and the file the inputs were read from is a
+// human's to reorder — so a builder that emitted declaration order would move
+// the digest when somebody sorted a list alphabetically, and two people building
+// the same commit would disagree about the bytes.
+//
+// The sort is written out here because the contract's comment is the shared
+// specification and any reimplementation has to match it: ascending by kind with
+// local before module, as the oneof numbers them; then bytewise by the identity,
+// which is local.path or module.path; then bytewise over proto_packages, which
+// is itself sorted. Two inputs may not contribute the same proto package — see
+// manifest.Packages — so no two entries tie on all three and the order is total.
+func canonicalInputs(inputs []*cataloguev1.Input) []*cataloguev1.Input {
+	if len(inputs) == 0 {
+		return nil
+	}
+	// Cloned, not aliased. These messages end up inside the artifact this
+	// function returns, and a caller that mutated its own slice afterwards
+	// would be editing a catalogue that has already been marshalled and
+	// hashed — a Result whose Catalogue no longer describes its Body.
+	out := make([]*cataloguev1.Input, 0, len(inputs))
+	for _, in := range inputs {
+		c := proto.Clone(in).(*cataloguev1.Input)
+		sort.Strings(c.ProtoPackages)
+		out = append(out, c)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ka, kb := inputKind(a), inputKind(b); ka != kb {
+			return ka < kb
+		}
+		if pa, pb := inputPath(a), inputPath(b); pa != pb {
+			return pa < pb
+		}
+		return lessStrings(a.GetProtoPackages(), b.GetProtoPackages())
+	})
+	return out
+}
+
+// inputKind is the oneof's field number, which is what "ascending by kind" means
+// and what makes local sort before module without a second constant to keep in
+// step with the contract.
+func inputKind(in *cataloguev1.Input) int {
+	switch in.GetOf().(type) {
+	case *cataloguev1.Input_Local:
+		return 1
+	case *cataloguev1.Input_Module:
+		return 2
+	default:
+		// An arm this binary does not know. Sorted last so that the entries it
+		// does understand keep their order among themselves.
+		return 3
+	}
+}
+
+func inputPath(in *cataloguev1.Input) string {
+	if l := in.GetLocal(); l != nil {
+		return l.GetPath()
+	}
+	return in.GetModule().GetPath()
+}
+
+// lessStrings compares two sorted lists the way bytes compare: element by
+// element, and the shorter list first when one is a prefix of the other.
+func lessStrings(a, b []string) bool {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return len(a) < len(b)
 }

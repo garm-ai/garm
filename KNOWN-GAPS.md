@@ -8,6 +8,70 @@ Gaps in the contract itself are in
 [`garm-ai/contracts`](https://github.com/garm-ai/contracts)'s own
 `KNOWN-GAPS.md`, and gaps in enforcement are `garmd`'s.
 
+## What the manifest does not do yet
+
+`catalogue build` composes from `catalogue.yaml` since v0.20.0. Four things the
+design asks of it are not here, in the order they land.
+
+- **`garm catalogue init` does not exist.** Every deployment in the estate is in
+  the pre-manifest state — adopted packages copied into `proto/`, a matching
+  `exclude_paths` entry, a drift gate watching the copy — and the manifest that
+  describes such a tree has to be written by hand today. Its real job is
+  migration rather than scaffolding: read the tree, write a `path:` entry and a
+  `module:` entry for each copied package it can match to a requirement in
+  `go.mod`, and **report rather than guess** where it cannot, because a copied
+  package `go.mod` does not require is a tree compiling against descriptors it
+  does not depend on, which is a defect and not an entry to invent.
+- **The required-platform-package rule is not enforced.** A declaration that says
+  `approval { mode: MODE_GRANT }` or declares a task of `Kind.ASK` needs
+  `garm.tasks.v1` in the same catalogue, or the call parks on a task nobody can
+  open and the only symptom is an absence. The manifest is what makes that
+  checkable — the whole assembled set is visible here where the protoc plugin
+  sees one directory — and it is unwritten. It lands with the adoption it
+  refuses: the rule alone would break the bank's current catalogue, which is the
+  rule working and still a broken build.
+- **The taxonomy is still scraped from proto options.** `compartments` and
+  `tool_sets` come from a file-level option unioned across every file in the set,
+  first declaration winning, which means adopting a tool silently extends the
+  vocabulary that governs who may see what. The manifest is where a deployment
+  should declare it. Nothing in `catalogue.yaml` accepts a `taxonomy:` key yet,
+  and an unknown key is refused, so a tree cannot pre-empt this.
+- **A composed agent's prompts are not resolvable.** An entry's `prompts:` key is
+  parsed and carried on `manifest.Input`, and consumed by nobody: `catalogue
+  publish` still takes one `--prompts-root` and resolves every pinned digest
+  against it. So an adopted agent whose prompts live in its own module cannot be
+  published yet. See Publishing, below.
+
+## How a module input resolves, and what that does not check
+
+- **A module's protos are found by convention, with no way to say otherwise.**
+  `<module>/proto` if it exists, else the module root, and a proto package at the
+  directory its name spells. Every tree in this estate follows both, and a module
+  that does not is refused with a message naming the directory it looked in —
+  which is honest, and not the same as configurable. There is no `proto_root:`
+  key, because no module has needed one.
+- **A proto package this binary LINKS is compiled from the linked descriptor, not
+  from the module cache.** `internal/compile`'s resolver answers from
+  `protoregistry.GlobalFiles` before it falls through to source, which is what
+  makes this binary's copy of an annotation authoritative — and it applies to
+  `garm.tasks.v1` too, which is a service contract rather than a vocabulary. So
+  for that one package a module input's recorded version describes **the tree's
+  requirement**, while the descriptor bytes are the ones `garm` itself links. The
+  two are normally the same tag and nothing warns when they are not. It is
+  visible: `Provenance.compiler` and `producer` identify the binary, so a digest
+  that does not reproduce is diagnosable, but the artifact does not state the
+  disagreement.
+- **`garm lint` still takes one directory.** Only `catalogue build` composes. The
+  rules that need the whole assembled set — A3's allowlist, and the required
+  platform package when it lands — therefore see a manifest's inputs from the
+  builder and never from the linter, so `garm lint` over a composed tree checks
+  the deployment's own protos and not what it adopts. Lint learns the manifest
+  with the rule that needs it.
+- **`--proto` is deprecated in its help text and warns nothing at run time.** A
+  warning on stderr would change the output of every pipeline that still passes
+  it, which is all of them, so the deprecation is documentation until the flag is
+  removed.
+
 ## Commands that do not exist
 
 - **`garm new toolservice`** is unwritten.
@@ -95,8 +159,9 @@ Gaps in the contract itself are in
   about it is untestable where it sits, and its next change is not cosmetic: a
   composed catalogue resolves each prompt against the root of the *input* that
   contributed its agent, so the one `--prompts-root` becomes a root per resolved
-  input. Moving it now would mean designing that type before the thing that
-  produces it exists, and moving the code twice. It moves with the manifest.
+  input. `manifest.Input` is that type as of v0.20.0 and it carries the entry's
+  `prompts:` key, so the move is unblocked and not done: `publish` re-reads the
+  manifest for nothing today and resolves every prompt against one root.
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

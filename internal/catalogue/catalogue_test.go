@@ -8,6 +8,7 @@ package catalogue_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
 	"github.com/garm-ai/garm/internal/catalogue"
 	"github.com/garm-ai/garm/internal/compile"
 	"github.com/garm-ai/garm/internal/compiler"
@@ -312,4 +314,101 @@ func TestTheArtifactIsReproducible(t *testing.T) {
 	if a.Digest != b.Digest {
 		t.Fatalf("two builds of identical source differ: %s vs %s", a.Digest, b.Digest)
 	}
+}
+
+// The order of Provenance.inputs is the contract's, not the caller's.
+//
+// It is part of the artifact rather than presentation: a catalogue is
+// byte-reproducible by requirement, and the file a builder reads its inputs from
+// is a human's to reorder. So the sort is specified in
+// garm.catalogue.v1.Provenance.inputs — ascending by kind with local before
+// module, then bytewise by the identity, then bytewise over the sorted
+// packages — and this asserts the implementation against it rather than against
+// itself: the inputs go in scrambled and come out in exactly one order, whatever
+// order they went in.
+func TestProvenanceInputsAreInTheContractsCanonicalOrder(t *testing.T) {
+	scrambled := []*cataloguev1.Input{
+		module("github.com/garm-ai/tools/web", "v0.2.0", "web.v1"),
+		module("github.com/garm-ai/contracts", "v0.5.0", "garm.tasks.v1"),
+		// Same module path, two package lists: the third key in the sort. Not a
+		// state a manifest can produce — one entry per module — but the order
+		// has to be total, and a reimplementation has to agree here too.
+		module("github.com/garm-ai/agents", "v0.1.0", "agents.support.v1"),
+		module("github.com/garm-ai/agents", "v0.1.0", "agents.admin.v1"),
+		local("vendor/proto"),
+		local("proto"),
+	}
+	want := []string{
+		"local proto",
+		"local vendor/proto",
+		"module github.com/garm-ai/agents [agents.admin.v1]",
+		"module github.com/garm-ai/agents [agents.support.v1]",
+		"module github.com/garm-ai/contracts [garm.tasks.v1]",
+		"module github.com/garm-ai/tools/web [web.v1]",
+	}
+
+	// Twice, from two different starting orders, because "the sort is total" is
+	// the claim and a stable sort over a partial key would pass the first.
+	for _, start := range [][]*cataloguev1.Input{scrambled, reverse(scrambled)} {
+		set, fds := tree(t, "acme/v1/calc.proto", calculator)
+		req := request(set, fds)
+		req.Inputs = start
+		res, _, err := catalogue.Build(req)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		var got []string
+		for _, in := range res.Catalogue.GetProvenance().GetInputs() {
+			got = append(got, describe(in))
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("inputs are not in canonical order:\n%s", strings.Join(got, "\n"))
+		}
+	}
+}
+
+// A catalogue built without a manifest records no inputs, and that means "this
+// builder did not say" rather than "composed from nothing" — which is not a
+// state, because a build with no declarations is refused.
+func TestNoInputsIsAnEmptyListAndNotAnError(t *testing.T) {
+	set, fds := tree(t, "acme/v1/calc.proto", calculator)
+	res, _, err := catalogue.Build(request(set, fds))
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if got := res.Catalogue.GetProvenance().GetInputs(); len(got) != 0 {
+		t.Fatalf("a build with no inputs recorded %d", len(got))
+	}
+}
+
+func local(path string) *cataloguev1.Input {
+	return &cataloguev1.Input{
+		Of:            &cataloguev1.Input_Local{Local: &cataloguev1.LocalInput{Path: path}},
+		ProtoPackages: []string{"ignored.v1"},
+	}
+}
+
+func module(path, version string, pkgs ...string) *cataloguev1.Input {
+	return &cataloguev1.Input{
+		Of: &cataloguev1.Input_Module{Module: &cataloguev1.ModuleInput{
+			Path: path, Version: version,
+		}},
+		ProtoPackages: pkgs,
+	}
+}
+
+func describe(in *cataloguev1.Input) string {
+	if l := in.GetLocal(); l != nil {
+		return "local " + l.GetPath()
+	}
+	return fmt.Sprintf("module %s [%s]", in.GetModule().GetPath(),
+		strings.Join(in.GetProtoPackages(), " "))
+}
+
+func reverse(in []*cataloguev1.Input) []*cataloguev1.Input {
+	out := make([]*cataloguev1.Input, 0, len(in))
+	for i := len(in) - 1; i >= 0; i-- {
+		out = append(out, in[i])
+	}
+	return out
 }

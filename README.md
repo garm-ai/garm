@@ -18,7 +18,7 @@ a module this one depends on — see [The contract is a dependency](#the-contrac
 garm init                scaffold a proto tree, annotations vendored in
 garm gen                 run the code generators (a thin wrapper on `buf generate`)
 garm lint                check your tool declarations against the L, A, C and O rules
-garm catalogue build     compile the proto tree into the artifact garmd loads
+garm catalogue build     compose the catalogue.yaml inputs into the artifact garmd loads
 garm catalogue publish   put it, and the prompts it pins, on an object store
 garm catalogue diff      what changed between two catalogues, in policy terms
 garm claims check        assert a claims policy only names vocabulary a catalogue declares
@@ -51,6 +51,7 @@ differs from the RPC name.
 | `cmd/protoc-gen-garm-go/` | The protoc plugin, under the conventional name, so `go install` puts it on PATH |
 | `internal/catalogue/` | Assembly: the lint gate, the descriptor hashes, the synthesised cards, the marshalled artifact. It decides and returns; the command prints and writes |
 | `internal/compile/` | Proto source to descriptors, in process — not by shelling out to buf, so an author needs no second tool and a catalogue's digest does not depend on whichever buf is on someone's PATH |
+| `internal/manifest/` | `catalogue.yaml`: what it may say, which version the module graph resolves each entry to, and which input contributed which proto package |
 | `internal/compiler/` | The reader, the lint rules, and the emitter |
 | `internal/plugin/` | The plugin entry point both binaries share |
 | `internal/policydiff/` | What `catalogue diff` compares |
@@ -70,7 +71,7 @@ package that compiles field annotations into redaction plans all live in
 requires that module like any other dependency:
 
 ```
-require github.com/garm-ai/contracts v0.2.0
+require github.com/garm-ai/contracts v0.5.0
 ```
 
 Why they are not here: ten Go modules compile against the contract and exactly
@@ -98,16 +99,85 @@ What that means in practice:
 
 ## The catalogue
 
-`garm catalogue build` compiles a proto tree into the artifact a daemon loads
-at boot, so adding a tool is a catalogue rebuild rather than a release of the
-governance binary. Two builds of identical source produce identical bytes,
-because the digest is the catalogue's identity.
+`garm catalogue build` composes a catalogue from the inputs **`catalogue.yaml`**
+declares, and writes the artifact a daemon loads at boot — so adding a tool is a
+catalogue rebuild rather than a release of the governance binary. Two builds of
+identical source produce identical bytes, because the digest is the catalogue's
+identity.
 
-The assembly itself is `internal/catalogue`, and the command is a thin front on
-it: `catalogue.Build` is handed a compiled tree and returns the artifact, its
-digest and the lint diagnostics, and the command decides only where the bytes
-go and which stream each line belongs on. Lint is not a step that front can
-skip — `Build` lints before it assembles and refuses on any error, so a
+```yaml
+# catalogue.yaml
+schema: v1
+name: bank
+source: garm-ai/examples/bank      # free-form provenance, never parsed
+
+include:
+  - path: proto                    # this deployment's own declarations
+
+  - module: github.com/garm-ai/contracts          # platform tools it operates
+    packages: [garm.tasks.v1]
+  - module: github.com/garm-ai/tools/web          # a tool package it adopts
+    packages: [web.v1]
+
+prompts: .
+```
+
+An input is a directory in this tree or proto packages from a Go module the tree
+requires, and the deployment's own tree is one entry among the others rather than
+a privileged flag. `garm catalogue build`, with no arguments, is the whole
+command: the manifest is found by convention in the working directory.
+
+**The manifest names *what*; `go.mod` says *which version*.** Nothing new
+fetches anything — a tag is a Go module version, `go mod download` already maps
+one to the other, and the protos are read out of the module cache, so this works
+offline once the cache is warm and travels through whatever `GOPROXY` an
+enterprise already permits. The consequence is the invariant the file exists for:
+**a module the tree does not require is refused.** The generated Go already comes
+from that requirement, so a second place to pin a version would let a deployment
+compile against one tag and declare the descriptors of another, which is a
+descriptor mismatch that presents at run time as an agent that cannot mount.
+A `version:` key is permitted for readability and must equal what the module
+graph resolves to; a disagreement is an error, not a precedence rule.
+
+Three more rules, all so that the artifact means one thing:
+
+- **Two inputs declaring one proto package is refused, naming both.** Never a
+  merge and never last-wins — a silent winner is the drift a manifest replaces.
+- **A package a module entry names and the module does not declare is refused,
+  naming both.**
+- **`include` order is presentation.** The inputs are sorted into the order
+  `garm.catalogue.v1.Provenance.inputs` specifies before they are stamped, and
+  the descriptor set's file order is sorted over every input together, so
+  reordering the file does not move the digest.
+
+The artifact then **records what it was composed from**: each input's module path
+and resolved version, or the local path and its `source`, with the proto packages
+it contributed. That is what makes a catalogue a bill of materials — "which
+version of the payment tool's contract is this deployment running" is a question
+the artifact answers, where before it was knowable only from a commit.
+
+### The flags
+
+| | |
+|---|---|
+| `-f`, `--manifest` | The manifest to compose from. Default: `catalogue.yaml` in the working directory |
+| `-o`, `--out` | Where to write the artifact. Default: `catalogue.binpb` |
+| `--source` | Free-form provenance: a repository and commit, a pipeline id. Overrides the manifest's `source:` |
+| `--prompts-root` | Where an agent's `prompts.*.path` resolves against. Default: the manifest's `prompts:` |
+| `--stamp-time` | Record the build time. Breaks byte-reproducibility, and the help says so |
+| `--proto` | **Deprecated.** Build from one directory, as a manifest with a single `path:` entry |
+
+`--proto` still works and produces byte-identical artifacts to the one-entry
+manifest that replaces it, because it *is* that manifest: it is turned into one
+before anything else happens, so there is one composition path and the deprecated
+flag cannot drift away from the supported input. A tree with no `catalogue.yaml`
+falls back to `proto/`, so nothing that builds today stops building.
+
+The assembly itself is `internal/catalogue`, the manifest is
+`internal/manifest`, and the command is a thin front on both:
+`catalogue.Build` is handed a compiled tree and the resolved inputs, and returns
+the artifact, its digest and the lint diagnostics. Lint is not a step that front
+can skip — `Build` lints before it assembles and refuses on any error, so a
 catalogue that does not lint cannot be built by anything that calls it.
 
 About 384 bytes per tool on disk and 9.3 KB retained, linear to at least
@@ -155,7 +225,10 @@ one, and fail rather than skip when `CI` is set.
 ## Status
 
 Shipped: `init`, `gen`, `lint`, `catalogue build|diff|publish`, `claims check`,
-`plugin`, `version`. Thirty-two tool lint rules (the L series), seven agent rules
+`plugin`, `version`. `catalogue build` composes from `catalogue.yaml` since
+**v0.20.0**; what the manifest does not do yet — `garm catalogue init` to write
+one, the required-platform-package rule, the taxonomy, and `publish` resolving a
+composed agent's prompts out of its own module — is in KNOWN-GAPS.md. Thirty-two tool lint rules (the L series), seven agent rules
 (A1–A5, A9, A10), three card rules (C1, C8, C9) and one ownership rule (O1, a
 warning), with twenty conformance cases. What is still missing is in
 KNOWN-GAPS.md.
