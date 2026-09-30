@@ -8,7 +8,9 @@ import (
 	"cel.dev/cel-go/cel"
 	celast "cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/types"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
 	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
@@ -569,7 +571,25 @@ func checkReadsExpr(bad func(string, ...any), state protoreflect.MessageDescript
 // is one read of `amount.minor`, not also a read of `amount`. Presence tests
 // (`has(state.x)`) are reads like any other — the rule is one sentence and
 // stays one sentence.
+//
+// A thin wrapper over rootedSelections: A11 needs the identical walk rooted
+// at `response` instead of `state`, so the walk itself is parameterised and
+// this keeps its name and behaviour for A7's callers and tests.
 func stateSelections(a *cel.Ast) []string {
+	return rootedSelections(a, "state")
+}
+
+// statePath returns the dotted field path of a selection chain rooted at the
+// identifier `state`, or "" for any other chain. See stateSelections.
+func statePath(e celast.Expr) string {
+	return rootedPath(e, "state")
+}
+
+// rootedSelections returns the field paths an expression reads off the
+// variable named root — the LONGEST chain per read, as stateSelections
+// documents. `state` and `response` are both plain CEL variables, so the same
+// walk answers both: A7 asks it about `state`, A11 about `response`.
+func rootedSelections(a *cel.Ast, root string) []string {
 	if a == nil || a.NativeRep() == nil {
 		return nil
 	}
@@ -583,7 +603,7 @@ func stateSelections(a *cel.Ast) []string {
 			return
 		}
 		inner[e.AsSelect().Operand().ID()] = true
-		if path := statePath(e); path != "" {
+		if path := rootedPath(e, root); path != "" {
 			paths[e.ID()] = path
 			order = append(order, e.ID())
 		}
@@ -602,16 +622,21 @@ func stateSelections(a *cel.Ast) []string {
 	return out
 }
 
-// statePath returns the dotted field path of a selection chain rooted at the
-// identifier `state`, or "" for any other chain.
-func statePath(e celast.Expr) string {
+// rootedPath returns the dotted field path of a selection chain rooted at the
+// identifier named root, or "" for any other chain — including one rooted at
+// a different identifier, or one that is not a plain selection chain at all
+// (a call, an operator, a literal). That last case is exactly how A11 tells a
+// direct `response.matches` apart from `size(response.matches)`: called on an
+// expression's OWN top node, a non-empty result means the whole expression is
+// nothing but the selection.
+func rootedPath(e celast.Expr, root string) string {
 	var segs []string
 	for e.Kind() == celast.SelectKind {
 		sel := e.AsSelect()
 		segs = append(segs, sel.FieldName())
 		e = sel.Operand()
 	}
-	if e.Kind() != celast.IdentKind || e.AsIdent() != "state" {
+	if e.Kind() != celast.IdentKind || e.AsIdent() != root {
 		return ""
 	}
 	for i, j := 0, len(segs)-1; i < j; i, j = i+1, j-1 {
@@ -915,4 +940,199 @@ func sortedSet(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// lintStatePropagation covers A11: a state field is at least as protected as
+// what it is written from.
+//
+// GetState's output IS the state message (A8), and garmd projects it per
+// caller like any other governed reply — so a `set` that lifts a value out of
+// a tool's RESPONSE and into a state field is a disclosure of that value at
+// whatever grade the state field claims. The bank's own screening schema made
+// this judgement in prose once already: `requires_review` is graded one below
+// `matches`, with a comment saying a routing decision is safe to show a
+// supervisor who never sees the names themselves. `derives` is that judgement
+// written so a machine can check it, and this rule is the check.
+//
+// Only `response` reads matter here, not `state` reads: a `set` expression
+// copying one state field into another moves nothing that was not already
+// published by whichever earlier `set` put it there, and that earlier write is
+// where this rule already looked at it.
+//
+// A field written by a DIRECT selection (`flag: response.flagged`) is compared
+// exactly: the state field's clearance must be at least the source's, and its
+// compartments must be a superset. An expression that reads `response` without
+// being one — `size(response.matches)` — changes the shape of what is
+// disclosed in a way this rule cannot size up field-for-field, so it demands a
+// `derives` annotation instead of attempting the comparison. Either way, a
+// `derives` with an empty reason is refused: an escape hatch that asks for
+// nothing is not an escape hatch, it is silence.
+//
+// Silent when the source carries no policy at all — a field with neither its
+// own `field_policy` nor a message default has nothing to propagate, and
+// inventing a classification nobody declared would be a rule the schema
+// author cannot act on.
+func lintStatePropagation(a Agent, tools map[string]Tool) []Diag {
+	p := a.Policy
+	if p.GetMode() != agentv1.Mode_MODE_WORKFLOW {
+		return nil
+	}
+	state := a.StateMessage
+	if state == nil {
+		return nil // A8 already reports a workflow agent with no GetState
+	}
+	var out []Diag
+	for _, s := range p.GetSteps() {
+		if len(s.GetSet()) == 0 {
+			continue
+		}
+		tool, ok := tools[s.GetTool()]
+		if !ok {
+			// A7 (or its PartialSet warning) already says this step's tool is
+			// unresolved; there is no response descriptor here to compare
+			// against.
+			continue
+		}
+		resp := tool.Method.Output()
+		env, err := stateEnv(state, map[string]protoreflect.MessageDescriptor{"response": resp})
+		if err != nil {
+			continue // A7 already reports environment failures for this step
+		}
+		for _, key := range sortedKeys(s.GetSet()) {
+			out = append(out, checkStatePropagation(a, s.GetId(), key, s.GetSet()[key],
+				state, resp, env)...)
+		}
+	}
+	return out
+}
+
+// checkStatePropagation is A11 for one `set` entry.
+func checkStatePropagation(a Agent, step, key, expr string,
+	state, resp protoreflect.MessageDescriptor, env *cel.Env) []Diag {
+	stateFD, err := resolveFieldPath(state, key)
+	if err != nil {
+		return nil // A7 already reports a `set` key that does not resolve
+	}
+	ast, iss := env.Compile(expr)
+	if iss != nil && iss.Err() != nil {
+		return nil // A7 already reports an expression that does not compile
+	}
+	reads := rootedSelections(ast, "response")
+	if len(reads) == 0 {
+		return nil // nothing from `response` reaches this field; nothing to check
+	}
+	direct := rootedPath(ast.NativeRep().Expr(), "response") != ""
+
+	// Gather the policy of every response field the expression touches. Only
+	// a GOVERNED source makes this a disclosure at all.
+	worst := toolv1.Clearance_CLEARANCE_UNSPECIFIED
+	need := map[string]bool{}
+	var sources []string
+	governed := false
+	for _, read := range reads {
+		srcFD, err := resolveFieldPath(resp, read)
+		if err != nil {
+			continue // not a real response field; the typed compile already said so
+		}
+		fp := effectiveFieldPolicy(srcFD)
+		if fp == nil {
+			continue
+		}
+		governed = true
+		sources = append(sources, fmt.Sprintf("%s.%s (%s)", resp.FullName(), read, fp.GetRead()))
+		if fp.GetRead() > worst {
+			worst = fp.GetRead()
+		}
+		for _, c := range fp.GetCompartments() {
+			need[c] = true
+		}
+	}
+	if !governed {
+		return nil // the source carries no policy; there is nothing to propagate
+	}
+	sort.Strings(sources)
+	from := strings.Join(sources, ", ")
+
+	bad := func(format string, args ...any) Diag {
+		return Diag{Rule: "A11", Path: string(a.FQN), Msg: fmt.Sprintf(format, args...)}
+	}
+	derivesEscape := func() string {
+		return fmt.Sprintf("declare (garm.agent.v1.derives) = { from: %q reason: \"...\" } "+
+			"on %s if the downgrade is deliberate", reads[0], key)
+	}
+
+	if dv := fieldDerives(stateFD); dv != nil {
+		if dv.GetReason() == "" {
+			return []Diag{bad("step %q: `set[%s]` state field %s declares "+
+				"(garm.agent.v1.derives) with an empty reason. It is written from %s, "+
+				"which GetState would otherwise publish at a weaker grade — and a "+
+				"downgrade whose escape hatch is silence is not a rule. Say why "+
+				"publishing %s at a lower grade is safe",
+				step, key, key, from, key)}
+		}
+		return nil // a declared, reasoned downgrade — exactly what derives is for
+	}
+
+	if !direct {
+		return []Diag{bad("step %q: `set[%s]` is written from %s through an expression "+
+			"that is not a direct field selection, so A11 cannot compare its clearance "+
+			"and compartments field-for-field; %s",
+			step, key, from, derivesEscape())}
+	}
+
+	stateFP := effectiveFieldPolicy(stateFD)
+	stateRead := stateFP.GetRead()
+	have := map[string]bool{}
+	for _, c := range stateFP.GetCompartments() {
+		have[c] = true
+	}
+
+	var diags []Diag
+	if stateRead < worst {
+		diags = append(diags, bad("step %q: `set[%s]` is written from %s; the state "+
+			"field %s reads at %s, which is weaker. GetState publishes this message, so "+
+			"a state field must be at least as protected as what it is written from — "+
+			"raise %s to %s, or %s",
+			step, key, from, key, stateRead, key, worst, derivesEscape()))
+	}
+	var missing []string
+	for c := range need {
+		if !have[c] {
+			missing = append(missing, c)
+		}
+	}
+	sort.Strings(missing)
+	for _, c := range missing {
+		diags = append(diags, bad("step %q: `set[%s]` is written from %s, which carries "+
+			"the %q compartment; the state field %s does not. GetState publishes this "+
+			"message, so a state field must be at least as protected as what it is "+
+			"written from — add %q to %s, or %s",
+			step, key, from, c, key, c, key, derivesEscape()))
+	}
+	return diags
+}
+
+// effectiveFieldPolicy returns fd's own field_policy, or its message's
+// default_field_policy, or nil when neither is declared — the same
+// resolution policy.Compile itself performs field by field.
+func effectiveFieldPolicy(fd protoreflect.FieldDescriptor) *toolv1.FieldPolicy {
+	if fd == nil {
+		return nil
+	}
+	def := policy.MessageDefaultPolicy(fd.ContainingMessage())
+	return policy.FieldPolicyOf(fd, def)
+}
+
+// fieldDerives returns the (garm.agent.v1.derives) annotation on fd, or nil
+// when it carries none.
+func fieldDerives(fd protoreflect.FieldDescriptor) *agentv1.DerivedValue {
+	if fd == nil {
+		return nil
+	}
+	opts, ok := fd.Options().(*descriptorpb.FieldOptions)
+	if !ok || !proto.HasExtension(opts, agentv1.E_Derives) {
+		return nil
+	}
+	dv, _ := proto.GetExtension(opts, agentv1.E_Derives).(*agentv1.DerivedValue)
+	return dv
 }
