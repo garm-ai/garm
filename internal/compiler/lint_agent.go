@@ -52,6 +52,13 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		// errors. See lintWorkflowExpressionsWith for why the split is there
 		// rather than at this call site.
 		out = append(out, lintWorkflowExpressionsWith(a, tools, opts)...)
+		// A11 reads the same tool index A7 does, to compare a `set` source's
+		// field policy against the state field it lands on. Unlike A7 it
+		// takes no opts: a step whose tool is not in `tools` (PartialSet) is
+		// simply not checked here, the same silence A7's own per-step
+		// handling would have if it did not warn — see KNOWN-GAPS if this
+		// ever needs a PartialSet warning of its own.
+		out = append(out, lintStatePropagation(a, tools)...)
 		if opts.PartialSet {
 			// Not silently: a rule that is skipped wherever nobody is
 			// looking is not a rule. Same treatment A2 gives a missing

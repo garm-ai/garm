@@ -508,3 +508,100 @@ service Screener {
 		t.Errorf("A11 must say the reason is empty, not just refuse: %v", diags)
 	}
 }
+
+// TestA11IsWiredIntoLintAgents proves A11 is reached from the real entry
+// point, `lintAgents` — the thing `garm lint` and `garm catalogue build`
+// actually call — and not merely present and separately callable. A rule
+// nothing calls is a rule that does not run, even with five green tests
+// exercising `lintStatePropagation` directly.
+//
+// A dedicated fixture, not a reuse of TestA11RefusesAWeakerStateField's: this
+// test's subject is the WIRING, not the rule, and mixing the two would make a
+// failure here ambiguous between "not wired" and "fixture changed under it".
+func TestA11IsWiredIntoLintAgents(t *testing.T) {
+	agentSrc := `syntax = "proto3";
+package bank.v1;
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/bank/v1;bankv1";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "pay" description: "Payments." }] };
+
+message WiredRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string subject = 1;
+}
+
+message WiredState {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  // Claims INTERNAL; "check" (below) writes it from a field that reads at
+  // CONFIDENTIAL under "kyc" — the weaker grade lintAgents must still catch.
+  optional bool flag = 1 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  }];
+}
+
+service WiredAgent {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_WORKFLOW
+    tools: [{ fqn: "s.v1.check" }]
+    initial: [{ key: "subject" value: "input.subject" }]
+    steps: [{ id: "check" tool: "s.v1.check"
+      set: [{ key: "flag" value: "response.flagged" }] }]
+  };
+  rpc Invoke(WiredRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "wired_agent" title: "Wired" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "wired_agent_run" title: "Run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+  rpc GetState(garm.agent.v1.RunRef) returns (WiredState) {
+    option (garm.tool.v1.tool) = {
+      name: "wired_agent_state" title: "State" description: "Read a run's state."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+}
+`
+	toolSrc := `syntax = "proto3";
+package s.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/s/v1;sv1";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "ledger" description: "The ledger." }] };
+
+message CheckRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string subject = 1;
+}
+message CheckResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional bool flagged = 1 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["kyc"]
+    on_deny: { omit: {} }
+  }];
+}
+service Checker {
+  rpc Check(CheckRequest) returns (CheckResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "check" title: "Check" description: "Check a subject."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ledger"]
+    };
+  }
+}
+`
+	fds := compileWorkflowFixture(t, map[string]string{
+		"bank/v1/agent.proto": agentSrc,
+		"s/v1/check.proto":    toolSrc,
+	})
+	diags := lintAgents(fds, Options{})
+	if !hasRule(diags, "A11") {
+		t.Fatalf("lintAgents must reach A11 — a rule nothing calls does not run: %v", diags)
+	}
+}

@@ -197,6 +197,16 @@ rows of §6's table P1 cannot check:
   against the state message, edge predicates, and the write-dominator rule
   itself, because the reads are found by parsing and a parse needs no
   descriptor.
+- **A11 does not warn under `PartialSet`, unlike A7.** It needs the same tool
+  response descriptors A7's `set`-checking half needs, to read a source
+  field's `field_policy` — so a step whose tool is not in this run's `tools`
+  is simply not checked for a weaker state field, with no diagnostic at all
+  saying so. `garm lint` and `garm catalogue build` see the whole set and do
+  check it. This is a smaller gap than A7's because a `buf generate` fixing
+  only `with`/`set` type errors still leaves A11 to the commands that see the
+  catalogue, but it means a single-directory run can go quiet about a
+  disclosure the way A3/A7/A9/P1 are careful not to. Worth closing with an
+  `absentToolWarning`-style message if this proves to matter in practice.
 
 ## What `catalogue diff` does not compare
 
