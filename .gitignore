@@ -38,3 +38,7 @@ mise.local.toml
 # Catalogue artifacts are built, not committed. Running `garm catalogue
 # build` while testing is the easy way to leave a multi-megabyte file here.
 *.binpb
+
+# The subagent-driven-development workspace: ledgers, briefs, review
+# packages. Git-ignored scratch an agent writes for itself.
+/.superpowers/
