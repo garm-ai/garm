@@ -49,6 +49,7 @@ differs from the RPC name.
 |---|---|
 | `cmd/garm/` | The CLI |
 | `cmd/protoc-gen-garm-go/` | The protoc plugin, under the conventional name, so `go install` puts it on PATH |
+| `internal/catalogue/` | Assembly: the lint gate, the descriptor hashes, the synthesised cards, the marshalled artifact. It decides and returns; the command prints and writes |
 | `internal/compile/` | Proto source to descriptors, in process — not by shelling out to buf, so an author needs no second tool and a catalogue's digest does not depend on whichever buf is on someone's PATH |
 | `internal/compiler/` | The reader, the lint rules, and the emitter |
 | `internal/plugin/` | The plugin entry point both binaries share |
@@ -101,6 +102,13 @@ What that means in practice:
 at boot, so adding a tool is a catalogue rebuild rather than a release of the
 governance binary. Two builds of identical source produce identical bytes,
 because the digest is the catalogue's identity.
+
+The assembly itself is `internal/catalogue`, and the command is a thin front on
+it: `catalogue.Build` is handed a compiled tree and returns the artifact, its
+digest and the lint diagnostics, and the command decides only where the bytes
+go and which stream each line belongs on. Lint is not a step that front can
+skip — `Build` lints before it assembles and refuses on any error, so a
+catalogue that does not lint cannot be built by anything that calls it.
 
 About 384 bytes per tool on disk and 9.3 KB retained, linear to at least
 10,000 tools — `mise run bench` measures it, and

@@ -88,6 +88,15 @@ Gaps in the contract itself are in
 
 ## Publishing
 
+- **Prompt verification is still in the command package.** `catalogue build`'s
+  assembly moved to `internal/catalogue` in v0.19.1 under the rule in
+  `CLAUDE.md` — the package decides, the command prints — and `publish` did not
+  follow it. `verifyPrompts` already takes values and returns values, so nothing
+  about it is untestable where it sits, and its next change is not cosmetic: a
+  composed catalogue resolves each prompt against the root of the *input* that
+  contributed its agent, so the one `--prompts-root` becomes a root per resolved
+  input. Moving it now would mean designing that type before the thing that
+  produces it exists, and moving the code twice. It moves with the manifest.
 - **`catalogue publish` does one PUT per object.** No multipart, no retry, no
   concurrency. A prompt is a markdown file and a catalogue is single-digit
   megabytes at a realistic size (see `docs/catalogue.md`), so none of the three

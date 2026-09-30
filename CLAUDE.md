@@ -57,14 +57,50 @@ is the newest tag.
 
 | | |
 |---|---|
-| `cmd/garm/` | The CLI |
+| `cmd/garm/` | The CLI: cobra wiring, flags, streams, exit codes and file I/O — and no domain logic. See the rule below |
 | `cmd/protoc-gen-garm-go/` | The plugin under its conventional name; one implementation, two binaries |
+| `internal/catalogue/` | Catalogue assembly: the lint gate, the per-package descriptor hashes, the synthesised card endpoints, the marshalled artifact. It decides; the command prints |
 | `internal/compile/` | Proto source to descriptors, in process. `linked.go` blank-imports the contract's generated packages so `garm/tool/v1/tool.proto` and its siblings resolve from `protoregistry.GlobalFiles` — **that is why this repository holds no protos and needs none.** Do not remove those imports |
 | `internal/compiler/` | Loads protos, lints them, emits code |
 | `internal/plugin/` | The plugin entry point, shared by the CLI and the conventionally named binary |
 | `internal/policydiff/` | What `catalogue diff` compares |
 | `internal/contractsrepo/` | Locates a `garm-ai/contracts` checkout, for the two tests whose subject is proto or generated SOURCE |
 | `conformance/` | Golden cases. Stays here because it tests `internal/compile` and `internal/compiler` — this repository's compiler |
+
+### The package decides, the command prints
+
+`cmd/garm/` owns flags, output, exit codes and I/O. It does not own judgement.
+Anything that decides — what to refuse, what to hash, in what order, what the
+artifact contains — belongs in an `internal/` package that takes values and
+returns values: no cobra, no `os.WriteFile`, no writing to a stream.
+
+The reason is testability, and it is not theoretical. `catalogue build`'s
+assembly lived in a `RunE` until v0.19.1: roughly 125 lines of domain logic
+behind 30 of wiring, reachable only by constructing a command and reading its
+stderr. So the properties the catalogue actually rests on — that a package's
+digest covers the author's declarations and not the synthesised cards, that a
+tree with no tools is refused, that a tree which does not lint is never
+built — were either untested or tested through a CLI's output. They are
+`internal/catalogue`'s tests now.
+
+Two consequences worth keeping straight:
+
+- **`internal/catalogue` reads and writes no files.** `compile.Tree` is called
+  by the command and its result handed in; the artifact comes back as bytes the
+  command writes. `contracts/policy` has the same shape — it returns a plan and
+  leaves applying it to the caller.
+- **The lint gate is closed by the API's shape, not by a comment.**
+  `catalogue.Build` lints the tree itself and returns `(nil, diags, err)` when
+  any diagnostic is an error. The diagnostics come back to be *printed*, never
+  for a caller to count: there is no exported way to obtain a `Result` for a
+  tree that did not lint, and nothing a caller can pass in to skip it.
+  `catalogue.Check` exists for `garm lint`, which reports and gates nothing.
+
+One deliberate exception, because it is about to move anyway: `publish`'s prompt
+verification is still in `cmd/garm/publish.go`. It already takes values and
+returns values, so nothing is untestable there, and the manifest work turns its
+single `--prompts-root` into a root per resolved input — a type that does not
+exist yet. KNOWN-GAPS.md records it.
 
 ## buf runs outwards now
 

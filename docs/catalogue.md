@@ -61,7 +61,7 @@ carries more and saves more from the strip below.
 `SourceCodeInfo` carries spans and paths for every token in every file, and it
 is roughly **half** of both numbers above — before the strip, 10,000 tools cost
 9.7 MB on disk and 180 MB retained. Re-measure by deleting the strip in
-`runCatalogueBuild` and running the benchmark again.
+`internal/catalogue`'s `Build` and running the benchmark again.
 
 So the prose is lifted into `field_docs` at build time and `SourceCodeInfo` is
 dropped. The schema keeps its documentation and the artifact stops carrying

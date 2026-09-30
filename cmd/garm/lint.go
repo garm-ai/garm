@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/garm-ai/garm/internal/catalogue"
 	"github.com/garm-ai/garm/internal/compile"
-	"github.com/garm-ai/garm/internal/compiler"
 )
 
 func newLintCmd() *cobra.Command {
@@ -27,17 +27,15 @@ func newLintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			diags := compiler.LintWith(fds, compiler.Options{
-				PromptsRoot: resolvePromptsRoot(promptsRoot, protoDir),
-			})
-			errs := 0
+			// The same lint the catalogue's build gate runs, through the same
+			// function, so there is one implementation of which diagnostics
+			// are refusals. This command only reports: there is no artifact
+			// here to gate.
+			diags := catalogue.Check(fds, resolvePromptsRoot(promptsRoot, protoDir))
 			for _, d := range diags {
 				fmt.Fprintln(cmd.ErrOrStderr(), d.String())
-				if !d.Warn {
-					errs++
-				}
 			}
-			if errs > 0 {
+			if errs := diags.Errors(); errs > 0 {
 				return fmt.Errorf("%d garm tool policy error(s)", errs)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ok — %d file(s), no errors\n", len(fds))
