@@ -84,6 +84,32 @@ rows of §6's table P1 cannot check:
   `garm lint` as well as on `catalogue build`. A warning on stderr would change
   the output of every pipeline that still passes it, which is all of them, so the
   deprecation is documentation until the flag is removed.
+- **`garm lint --proto` is now WRONG on a composed tree, not merely narrower, and
+  the fix is decided and unbuilt.** `--proto` becomes a synthetic one-entry
+  manifest and then runs the FULL rule set, `PartialSet` unset. On a tree that
+  adopts a tool from a module the adopted tool is not in that directory, so A3
+  refuses an agent's allowlist for naming a tool it cannot see — the bank's
+  research assistant fails on `web.v1.fetch_page` while the manifest passes. A
+  deprecated flag that produces a false failure is worse than one that is
+  removed.
+
+  The decision, for whoever picks it up: **refuse, when a `catalogue.yaml` sits
+  beside it.** `--manifest` together with `--proto` is already an error naming
+  "two different inputs", and `--proto` in a tree that has a manifest is the same
+  mistake made implicitly — the tree has said what composes into its catalogue,
+  and the flag asks for part of it to be judged as the whole. `--proto` in a tree
+  with no manifest is still the whole catalogue and keeps today's behaviour, so
+  the pre-manifest pipelines it exists for are untouched. What it is NOT is
+  `PartialSet`: downgrading A3, A9 and P1 to warnings whenever `--proto` appears
+  would quietly stop checking them for every tree that has not migrated, which is
+  most of them, and a rule skipped wherever nobody is looking is not a rule.
+
+  Held out of v0.21.1 deliberately. It adds a refusal where an invocation
+  succeeds today, which is a breaking change for every pipeline still passing the
+  flag, and it should not ride along with a fix people may want to cherry-pick.
+  And the two failures are not the same danger: this one is loud and its
+  workaround is the documented replacement, where the `sets` miss was silent and
+  reassuring.
 - **A tree with no `go.mod` cannot pin anything, and only `catalogue init` says so
   kindly.** `Resolve` refuses a manifest with module entries when there is no
   go.mod in the manifest's directory or any directory above it — up, because a
@@ -133,6 +159,88 @@ rows of §6's table P1 cannot check:
   live outside the request. The plugin warns (A3) that the allowlist and its
   guards were not checked and names what does check them: `garm lint` over the
   tree, and `garm catalogue build`.
+
+## What `catalogue diff` does not compare
+
+`catalogue diff` prints "no policy changes." when it finds none, and a reviewer
+acts on that sentence, so the sentence has to be bounded. A missing rule in the
+linter fails open and somebody eventually notices what it did not refuse; a
+missing comparison here produces a **reassurance**, which is worse than having no
+tool.
+
+It went wrong exactly once, and v0.21.1 is the fix. `sets` was never read, so the
+contract bump that gave `garm.tasks.v1.decide_task` and `approval_card`
+`sets: ["triage"]` — two named approvers going from `not_found` to able to decide
+— reported nothing at all. Tool-set membership is the dimension that decides
+*reachability*: garmd refuses a scoped session any tool that shares none of its
+sets, so adding or removing one grants or revokes access with no clearance and no
+compartment moved.
+
+Every field of `garm.tool.v1.ToolPolicy` and `FieldPolicy` was then walked
+against what an engine actually reads. `internal/policydiff/coverage_test.go`
+holds the result as a test: each field is compared or on an ignore list **with the
+reason beside it**, "compared" is proved by moving the field and requiring a
+change, and every comparison must speak in **both** directions. The shape is
+copied from `garm-ai/contracts`' tool-set rule and `garm-ai/sink`'s lake columns.
+
+What that walk found, besides `sets`: `approval.material_fields`,
+`approver_min_clearance`, `approver_compartments` and `max_grant_age_seconds`
+were uncompared, and so were `FieldPolicy.write` and `FieldPolicy.source`. All
+six are compared now. Three comparisons were one-sided — `audit.level` and
+`audit.retain_days` reported only a drop, `audit.fail_closed` only its removal —
+so every narrowing of those fields was invisible. Both directions now report.
+
+**The six deliberate omissions.** Each is a claim that a change to the field is
+not a policy change, or that it is already reported by another route:
+
+- **`name`** is half the FQN the diff keys tools by, so a rename already reports
+  as the old tool removed and a new one added — which is what a rename IS to a
+  grant naming the old FQN and to a manifest pinning it.
+- **`exclude`** is not a tool with different policy, it is a tool that does not
+  exist: `compiler.Tools` drops an excluded method, so it reports as removed.
+- **`title` and `description`** are prose. Published to callers, read by nothing
+  that decides. A description is model-facing text and worth reviewing, and `git
+  diff` shows it; putting it here would bury the lines that need a human.
+- **`guidance`** is prose for a model. Three fields reach callers, and `examples`
+  is dropped before it reaches anyone.
+- **`effects`** is advisory at run time. `idempotent`, `reversibility`,
+  `external` and `compensating_tool` are projected into garmd's definition and
+  compared for declaration identity, and no invoke branches on them. What acts on
+  them is `garm lint` at build time, and a refused tree is a better report than a
+  diff line.
+- **`audit.record_request` / `record_response`** make the tool **unmountable**:
+  garmd refuses it by name, because a ledger `Event` carries no payload to put
+  them in. A change is not a change to what is recorded; it is a tool that will
+  not start.
+- **The inside of an `authorization` block.** Only its presence is compared,
+  because only its presence is read: garmd projects the annotation down to one
+  `HasAuthorization` bool, and the relation, object type and field selectors
+  reach no daemon at all — there is no production FGA checker in the estate. When
+  one ships, the comparison follows.
+
+**`audience` is reported as `unclear`, on purpose.** It decides who a tool is
+*offered* to and is never consulted by the predicate that admits an invoke, so
+widening it grants nobody anything they could not already call and narrowing it
+hides a tool a caller may still name. It is reported at all because mistaking it
+for a gate is how `decide_task` became unreachable: it declared
+`audience: [AUDIENCE_PERSON]` and no set, written as though the audience were the
+scoping.
+
+**Two things it still cannot see, both outside this repository.**
+
+- **A tool's descriptors can move without the catalogue's declared version
+  moving.** For the four packages this binary links — `garm.tasks.v1`,
+  `garm.agent.v1`, `garm.card.v1`, `garm.meta.v1` — the descriptors in a built
+  catalogue come from **this binary's** `contracts` pin rather than from the
+  version a manifest entry names (see "A proto package this binary LINKS" above).
+  Build the same tree with `version: v0.4.0` and with `v0.5.0` and the artifacts
+  carry identical `garm.tasks.v1` policy. The diff is correct about the artifacts
+  it is handed; what a reader must not conclude is that a manifest bump with no
+  diff output changed nothing. Upgrading the CLI is the change that moves those
+  four packages, and diffing two catalogues built by two CLI versions is how you
+  see it.
+- **Shape changes are absent by design.** `buf breaking` covers those, and mixing
+  them in would bury the handful of lines that need a human.
 
 ## What the generator leaves to an author
 

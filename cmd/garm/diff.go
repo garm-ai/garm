@@ -23,8 +23,13 @@ func newCatalogueDiffCmd() *cobra.Command {
 		Use:   "diff <before.binpb> <after.binpb>",
 		Short: "Report what changed about policy between two catalogues",
 		Long: "diff reads two catalogues and reports every change to POLICY —\n" +
-			"clearances, compartments, approval, audit, redactions — with the\n" +
-			"direction it moved.\n\n" +
+			"clearances, compartments, TOOL SETS, approval and who may give it,\n" +
+			"audit, redactions, and which request fields a caller may set — with\n" +
+			"the direction it moved.\n\n" +
+			"What it does NOT compare is a short list, and it is in KNOWN-GAPS\n" +
+			"under `catalogue diff` so that \"no policy changes\" is a sentence you\n" +
+			"can bound: a name, a title, a description, `guidance`, `effects` and\n" +
+			"the inside of an `authorization` block.\n\n" +
 			"It exists because the annotations ARE the policy, so lowering a\n" +
 			"min_clearance is a security decision that arrives as an ordinary proto\n" +
 			"diff. A domain owner reviewing a pull request is not a security\n" +

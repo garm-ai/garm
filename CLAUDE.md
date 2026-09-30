@@ -117,7 +117,7 @@ hold and does not conclude.
 | `internal/manifest/` | `catalogue.yaml`: what it may say, what the module graph resolves each entry to, which input contributed which proto package, and — in `adopt.go` — the manifest a pre-manifest tree describes. Shells out to `go list`, deliberately — see the invariants above |
 | `internal/compiler/` | Loads protos, lints them, emits code |
 | `internal/plugin/` | The plugin entry point, shared by the CLI and the conventionally named binary |
-| `internal/policydiff/` | What `catalogue diff` compares |
+| `internal/policydiff/` | What `catalogue diff` compares. Its `coverage_test.go` walks `ToolPolicy`'s descriptor and refuses a field that is neither compared nor on an ignore list with a reason — see the rule below |
 | `internal/contractsrepo/` | Locates a `garm-ai/contracts` checkout, for the two tests whose subject is proto or generated SOURCE |
 | `conformance/` | Golden cases. Stays here because it tests `internal/compile` and `internal/compiler` — this repository's compiler |
 
@@ -157,6 +157,51 @@ prompts live in ITS module, so the single `--prompts-root` becomes a root per
 resolved input. `manifest.Input` is now that type and an entry's `prompts:` key
 is parsed and carried, so the move is unblocked rather than done. KNOWN-GAPS.md
 records it.
+
+### A comparison nobody wrote is a reassurance, not a gap
+
+`internal/policydiff` is the one place in this repository whose failure mode is
+**telling somebody that nothing happened**. Everywhere else a missing rule fails
+open and the thing it did not refuse eventually surfaces; here a field nobody
+compared makes `catalogue diff` print `no policy changes.` across a change that
+moved the boundary, and a reviewer acts on that sentence.
+
+It happened once. `sets` was never read, so the contract bump that gave
+`garm.tasks.v1.decide_task` and `approval_card` `sets: ["triage"]` — two named
+approvers going from `not_found` to able to decide — reported nothing at all. Tool
+sets are not a detail of policy: garmd's visibility predicate ends in
+`inScope(the session's sets, the tool's sets)`, so membership grants and revokes
+**reachability** with no clearance and no compartment moved.
+
+So the rule, and it is not optional when you touch this package:
+
+- **Add a field to `garm.tool.v1.ToolPolicy` or `FieldPolicy` and you add an
+  entry to `internal/policydiff/coverage_test.go`.** It walks the descriptor and
+  refuses a field that is neither compared nor on an ignore list **with a reason
+  beside it** — the reason is the point, because "deliberately not policy" and
+  "nobody noticed" are indistinguishable without one. The shape is copied from
+  `garm-ai/contracts`' tool-set rule (`garm/tasks/v1/scoping_test.go`) and
+  `garm-ai/sink`'s lake columns (`internal/row/contract_test.go`). Do not invent
+  a third.
+- **"Compared" is proved by moving the field, not by naming it.** Each entry is a
+  pair of values differing in one field and the claim that the comparison reports
+  it, so deleting an `if` from `policydiff.go` fails the test.
+- **Every comparison reports in BOTH directions.** A narrowing nobody intended is
+  an outage waiting for the caller who relied on it. Three comparisons were
+  one-sided before v0.21.1 — `audit.level` and `audit.retain_days` reported only a
+  drop, `audit.fail_closed` only its removal — so every narrowing of those fields
+  was invisible. The walk asserts the reverse pair too.
+- **Decide the ignore list against what an ENGINE reads, not against what the
+  field looks like.** `audit.record_request` looks like a disclosure control and is
+  in fact a tool garmd refuses to mount; the inside of an `authorization` block
+  looks like a check and reaches no daemon at all. Both are on the list for those
+  reasons, and both reasons are in KNOWN-GAPS so that a reader of `diff`'s output
+  can bound it.
+- **A direction you cannot justify is `Unclear`, and that is a real answer.**
+  `audience` is reported that way: it decides who a tool is *offered* to and is
+  never read by the predicate that admits an invoke. Putting it in the widening
+  bucket would teach people to skim the widening bucket, which is the only outcome
+  worse than not reporting at all.
 
 ## buf runs outwards now
 

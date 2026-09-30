@@ -22,6 +22,7 @@ garm catalogue init      write the catalogue.yaml that describes this tree
 garm catalogue build     compose the catalogue.yaml inputs into the artifact garmd loads
 garm catalogue publish   put it, and the prompts it pins, on an object store
 garm catalogue diff      what changed between two catalogues, in policy terms
+                         (including tool sets, which decide reachability)
 garm claims check        assert a claims policy only names vocabulary a catalogue declares
 garm plugin              the protoc plugin, so a buf.gen.yaml can name this binary
 garm version             what you are running
@@ -55,7 +56,7 @@ differs from the RPC name.
 | `internal/manifest/` | `catalogue.yaml`: what it may say, which version the module graph resolves each entry to, and which input contributed which proto package |
 | `internal/compiler/` | The reader, the lint rules, and the emitter |
 | `internal/plugin/` | The plugin entry point both binaries share |
-| `internal/policydiff/` | What `catalogue diff` compares |
+| `internal/policydiff/` | What `catalogue diff` compares — and, in `coverage_test.go`, a walk over `ToolPolicy`'s descriptor that refuses a field which is neither compared nor ignored with a reason |
 | `conformance/` | Golden proto cases and the diagnostics they must produce |
 | `docs/catalogue.md` | What a catalogue is, what it costs, and how it is sized |
 

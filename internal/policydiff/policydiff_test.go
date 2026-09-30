@@ -184,3 +184,118 @@ func TestAChangedMessageDefaultMovesEveryFieldThatInheritsIt(t *testing.T) {
 		t.Errorf("direction = %s, want widening", c.Direction)
 	}
 }
+
+// Tool sets are the dimension that decides REACHABILITY, and this file did not
+// read them until v0.21.1. The miss was not theoretical: contracts v0.5.0 gave
+// `garm.tasks.v1.decide_task` and `approval_card` `sets: ["triage"]` where they
+// had declared none, two named approvers went from not-found to able to decide,
+// and `catalogue diff` reported "no policy changes" across it. A reviewer told
+// nothing changed about an access grant has been actively misled, which is
+// worse than having no tool at all.
+//
+// These are separate tests rather than a table because the two transitions
+// across empty are not the same claim as adding and removing a set on a tool
+// that is already scoped, and the reason each one moves the way it does is the
+// thing under test.
+
+// Adding a set to a tool that had none is the v0.5.0 case. It is a grant: the
+// unscoped caller held it throughout, and every scoped session naming the new
+// set gains it.
+func TestAToolGainingItsFirstSetIsAGrant(t *testing.T) {
+	c := find(t, diff(t, baseTool, baseEmail, baseTool+`
+  sets: ["triage"]`, baseEmail), "sets none →")
+
+	if c.Direction != policydiff.Widening {
+		t.Errorf("direction = %s, want widening: a tool in no set is refused to "+
+			"every scoped session, so declaring one can only add callers", c.Direction)
+	}
+	// The sentence has to carry the counter-intuitive half, or a reviewer reads
+	// "now scoped" as a restriction and approves a grant by mistake.
+	for _, want := range []string{"no set", "unscoped"} {
+		if !strings.Contains(c.Why, want) {
+			t.Errorf("Why does not mention %q, so it does not explain why an empty "+
+				"set list is not an absence of policy:\n  %s", want, c.Why)
+		}
+	}
+}
+
+// And the mirror, which is the one most likely to be waved through: dropping a
+// tool's last set reads as lifting a restriction and revokes it from every
+// scoped session at once.
+func TestAToolLosingItsLastSetIsARevocation(t *testing.T) {
+	c := find(t, diff(t, baseTool+`
+  sets: ["triage"]`, baseEmail, baseTool, baseEmail), "→ none")
+
+	if c.Direction != policydiff.Narrowing {
+		t.Errorf("direction = %s, want narrowing: a tool in no set shares none with "+
+			"a session that names one", c.Direction)
+	}
+	if !strings.Contains(c.Why, "opposite") {
+		t.Errorf("Why does not warn that this reads backwards:\n  %s", c.Why)
+	}
+}
+
+func TestASetAddedToAScopedToolWidens(t *testing.T) {
+	c := find(t, diff(t,
+		baseTool+`
+  sets: ["triage"]`, baseEmail,
+		baseTool+`
+  sets: ["triage", "payments"]`, baseEmail), `set "payments" added`)
+	if c.Direction != policydiff.Widening {
+		t.Errorf("direction = %s, want widening", c.Direction)
+	}
+}
+
+func TestASetRemovedFromAScopedToolNarrows(t *testing.T) {
+	c := find(t, diff(t,
+		baseTool+`
+  sets: ["triage", "payments"]`, baseEmail,
+		baseTool+`
+  sets: ["triage"]`, baseEmail), `set "payments" removed`)
+	if c.Direction != policydiff.Narrowing {
+		t.Errorf("direction = %s, want narrowing", c.Direction)
+	}
+}
+
+// A set list that is only reordered is not a change. Sets are a set.
+func TestReorderingSetsIsNotAChange(t *testing.T) {
+	got := diff(t,
+		baseTool+`
+  sets: ["triage", "payments"]`, baseEmail,
+		baseTool+`
+  sets: ["payments", "triage"]`, baseEmail)
+	if len(got) != 0 {
+		t.Errorf("reordering produced %d change(s): %v", len(got), got)
+	}
+}
+
+// A new tool's line has to say which sets it lands in, because that is what
+// bounds who receives the new surface. "New tool, VERB_READ, INTERNAL" reads
+// as available to everyone cleared for it, and a tool in no set is available
+// to an unscoped caller and to nobody else.
+func TestANewToolSaysWhichSetsItLandsIn(t *testing.T) {
+	before := `syntax = "proto3";
+package d.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/gen/d_v1;x";
+message In { optional string id = 1; }
+message Out { optional string plain = 1; }
+service S {
+  rpc Get(In) returns (Out) { option (garm.tool.v1.tool) = { ` + baseTool + ` }; }
+}
+`
+	after := strings.Replace(before, "service S {", `service S {
+  rpc Other(In) returns (Out) { option (garm.tool.v1.tool) = {
+    name: "other" title: "O" description: "o." verb: VERB_READ
+    min_clearance: CLEARANCE_INTERNAL sets: ["triage"]
+  }; }`, 1)
+
+	got, err := policydiff.Diff(tree(t, before), tree(t, after))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := find(t, got, "new tool")
+	if !strings.Contains(c.What, `sets ["triage"]`) {
+		t.Errorf("a new tool's line does not name its sets: %q", c.What)
+	}
+}
