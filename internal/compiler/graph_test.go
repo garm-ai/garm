@@ -32,23 +32,41 @@ func TestAnEdgeToAnUnknownStepIsNamed(t *testing.T) {
 	}
 }
 
+// The fixture must have an unambiguous entry, or the two-entry check fires
+// first and the test passes for the wrong reason (mutual a<->b has no node
+// with zero predecessors, so newGraph never reaches findCycle). a is the
+// entry here; the cycle is b<->c.
 func TestACycleIsRefused(t *testing.T) {
 	_, probs := newGraph(
-		[]*agentv1.Step{{Id: "a"}, {Id: "b"}},
-		[]*agentv1.Edge{{From: "a", To: "b"}, {From: "b", To: "a"}},
+		[]*agentv1.Step{{Id: "a"}, {Id: "b"}, {Id: "c"}},
+		[]*agentv1.Edge{{From: "a", To: "b"}, {From: "b", To: "c"}, {From: "c", To: "b"}},
 	)
 	if len(probs) == 0 {
 		t.Fatal("a cycle must be refused; iteration belongs in react mode")
 	}
+	joined := strings.Join(probs, "; ")
+	if !strings.Contains(joined, "cycle") {
+		t.Errorf("the diagnostic must name the cycle; got %q", joined)
+	}
 }
 
+// The fixture must be a graph that is otherwise entirely clean — a single
+// entry, valid edges, no cycle — so that with the duplicate id merged away
+// (as if the dedup guard did not exist) newGraph would report nothing at
+// all. Steps a and the two b's, with an edge a->b: drop dedup and this
+// becomes a clean single-entry DAG (two step records sharing one id, one
+// inbound edge), so only the duplicate-id guard itself can object.
 func TestDuplicateStepIdsAreRefused(t *testing.T) {
 	_, probs := newGraph(
-		[]*agentv1.Step{{Id: "a"}, {Id: "a"}},
-		[]*agentv1.Edge{},
+		[]*agentv1.Step{{Id: "a"}, {Id: "b"}, {Id: "b"}},
+		[]*agentv1.Edge{{From: "a", To: "b"}},
 	)
 	if len(probs) == 0 {
 		t.Fatal("duplicate ids must be refused")
+	}
+	joined := strings.Join(probs, "; ")
+	if !strings.Contains(joined, `"b"`) {
+		t.Errorf("the diagnostic must name the duplicated id; got %q", joined)
 	}
 }
 
