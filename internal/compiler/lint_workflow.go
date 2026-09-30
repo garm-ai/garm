@@ -71,3 +71,43 @@ func lintAgentMode(a Agent) []Diag {
 	}
 	return out
 }
+
+// lintWorkflowGraph covers A6: the graph is a graph.
+func lintWorkflowGraph(a Agent) []Diag {
+	p := a.Policy
+	if p.GetMode() != agentv1.Mode_MODE_WORKFLOW {
+		return nil
+	}
+	var out []Diag
+	g, probs := newGraph(p.GetSteps(), p.GetEdges())
+	for _, s := range probs {
+		out = append(out, Diag{Rule: "A6", Path: string(a.FQN), Msg: s})
+	}
+	if g == nil {
+		return out
+	}
+	// Control flow must be TOTAL. A step with outgoing edges needs at least one
+	// unconditional one, so "no predicate matched" cannot arise: without this a
+	// typo in a `when` ends a run early and silently, which is the failure mode
+	// that looks like success.
+	for _, id := range g.ids {
+		es := g.succ[id]
+		if len(es) == 0 {
+			continue // terminal, by having no outgoing edge
+		}
+		total := false
+		for _, e := range es {
+			if e.When == "" {
+				total = true
+				break
+			}
+		}
+		if !total {
+			out = append(out, Diag{Rule: "A6", Path: string(a.FQN), Msg: fmt.Sprintf(
+				"every outgoing edge of step %q carries a `when`, so a run reaches "+
+					"it and stops if none matches. Add one unconditional edge as the "+
+					"fallback, or make %q terminal by removing its edges", id, id)})
+		}
+	}
+	return out
+}

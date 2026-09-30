@@ -44,6 +44,7 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		out = append(out, lintAgentShape(a)...)
 		out = append(out, lintAgentPrompts(a, opts)...)
 		out = append(out, lintAgentMode(a)...)
+		out = append(out, lintWorkflowGraph(a)...)
 		if opts.PartialSet {
 			// Not silently: a rule that is skipped wherever nobody is
 			// looking is not a rule. Same treatment A2 gives a missing
