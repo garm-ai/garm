@@ -217,14 +217,15 @@ Whether the package is present is a question about the **assembled** catalogue,
 not about one declaration, which is why `garm lint` now takes the same inputs
 `catalogue build` does — a manifest found by convention, `-f` to name one
 elsewhere, and `--proto` as the deprecated single-directory shorthand. The same
-is true of A3's agent allowlist, A9's audience, and the half of A7 that resolves
-a workflow step's `with` keys against the tool's request message: a linter that
-saw only the deployment's own directory would pass a tree the build then refuses.
-The protoc plugin, which buf invokes once per directory, cannot answer any of
-them and says it did not check rather than passing silently. A7's other half —
-that a state field is read only where every path has written it — needs nothing
-but the agent's own declaration, so it is an error everywhere, the plugin
-included.
+is true of A3's agent allowlist, A9's audience, the half of A7 that resolves a
+workflow step's `with` keys against the tool's request message, and A11's
+comparison of a `set`'s state field against the response field it reads: a
+linter that saw only the deployment's own directory would pass a tree the
+build then refuses. The protoc plugin, which buf invokes once per directory,
+cannot answer any of them and says it did not check rather than passing
+silently. A7's other half — that a state field is read only where every path
+has written it — needs nothing but the agent's own declaration, so it is an
+error everywhere, the plugin included.
 
 ### The flags
 

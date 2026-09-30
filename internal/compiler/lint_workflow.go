@@ -421,9 +421,16 @@ func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map
 	return out
 }
 
-// absentToolWarning is the one warning a one-directory run produces: A7 could
-// not resolve the tools of some steps, because buf invokes the plugin per
-// directory and they live elsewhere.
+// absentToolWarning is the one warning a one-directory run produces: A7 (and,
+// since the tool index is the same one `lintStatePropagation` reads, A11)
+// could not resolve the tools of some steps, because buf invokes the plugin
+// per directory and they live elsewhere.
+//
+// A11 gets no separate warning of its own. This function's own case for ONE
+// warning per agent rather than one per concern — a reader who skims N
+// same-location findings as a repeat — applies exactly as much to a second
+// function's warning sharing that location, so A11's gap is folded into this
+// warning's enumeration instead of duplicating it.
 //
 // ONE per agent, not one per step, for two reasons. Every diagnostic here
 // carries the same Path — the agent's FQN — so N of them are N same-location
@@ -456,13 +463,14 @@ func absentToolWarning(a Agent, allowed map[string]bool, tools map[string]Tool,
 	return []Diag{{Rule: "A7", Path: string(a.FQN), Warn: true, Msg: fmt.Sprintf(
 		"the tools of these steps are not in this run's input: %s. So `with` keys "+
 			"against a tool's request, the type of each `with` value against the "+
-			"field it feeds, `set` expressions against a tool's response, and which "+
-			"request fields are the runner's are NOT checked here — this run sees one "+
-			"directory rather than the catalogue. `garm lint` and `garm catalogue "+
-			"build` resolve every tool against the whole tree and do check them. "+
-			"Everything answerable from this agent's own declaration, the rule that a "+
-			"state field is read only where every path has written it included, was "+
-			"checked and is an error above",
+			"field it feeds, `set` expressions against a tool's response, whether a "+
+			"`set`'s state field is at least as protected as the response field it "+
+			"reads there (A11), and which request fields are the runner's are NOT "+
+			"checked here — this run sees one directory rather than the catalogue. "+
+			"`garm lint` and `garm catalogue build` resolve every tool against the "+
+			"whole tree and do check them. Everything answerable from this agent's "+
+			"own declaration, the rule that a state field is read only where every "+
+			"path has written it included, was checked and is an error above",
 		strings.Join(absent, ", "))}}
 }
 
@@ -960,13 +968,19 @@ func sortedSet(m map[string]bool) []string {
 // where this rule already looked at it.
 //
 // A field written by a DIRECT selection (`flag: response.flagged`) is compared
-// exactly: the state field's clearance must be at least the source's, and its
-// compartments must be a superset. An expression that reads `response` without
-// being one — `size(response.matches)` — changes the shape of what is
-// disclosed in a way this rule cannot size up field-for-field, so it demands a
-// `derives` annotation instead of attempting the comparison. Either way, a
-// `derives` with an empty reason is refused: an escape hatch that asks for
-// nothing is not an escape hatch, it is silence.
+// exactly: the state field's clearance must be at least the source's, per
+// `contracts/policy.Allows`, and its compartments must be a superset. An
+// expression that reads `response` without being one — `size(response.matches)`
+// — changes the shape of what is disclosed in a way this rule cannot size up
+// field-for-field, so it demands a `derives` annotation instead of attempting
+// the comparison. Either way, a `derives` with an empty reason is refused: an
+// escape hatch that asks for nothing is not an escape hatch, it is silence.
+//
+// A reasoned `derives` exempts only the source its `from` NAMES, never every
+// read a `set` might perform. Without that check one field's legitimate,
+// reviewed downgrade would silently cover every other field the same `set`
+// happened to also read — including one the annotation never mentioned and
+// nobody reviewed the sensitivity of.
 //
 // Silent when the source carries no policy at all — a field with neither its
 // own `field_policy` nor a message default has nothing to propagate, and
@@ -1058,7 +1072,7 @@ func checkStatePropagation(a Agent, step, key, expr string,
 	}
 	derivesEscape := func() string {
 		return fmt.Sprintf("declare (garm.agent.v1.derives) = { from: %q reason: \"...\" } "+
-			"on %s if the downgrade is deliberate", reads[0], key)
+			"on %s if the downgrade is deliberate", "response."+reads[0], key)
 	}
 
 	if dv := fieldDerives(stateFD); dv != nil {
@@ -1070,7 +1084,28 @@ func checkStatePropagation(a Agent, step, key, expr string,
 				"publishing %s at a lower grade is safe",
 				step, key, key, from, key)}
 		}
-		return nil // a declared, reasoned downgrade — exactly what derives is for
+		// A reasoned `derives` exempts only the source it NAMES. Without this
+		// check, one field's legitimate downgrade (`match_count` from
+		// `response.matches`) would silently exempt every OTHER field this
+		// `set` might read from — including a direct copy of an unrelated,
+		// more sensitive field the annotation never mentioned.
+		named := false
+		for _, read := range reads {
+			if dv.GetFrom() == "response."+read {
+				named = true
+				break
+			}
+		}
+		if !named {
+			return []Diag{bad("step %q: `set[%s]` state field %s declares "+
+				"(garm.agent.v1.derives) with from: %q, but this `set` is written "+
+				"from %s — a derives annotation exempts only the source it names, "+
+				"so it does not cover this one. Point `from` at what is actually "+
+				"read, or remove the annotation if this field's own grade should "+
+				"apply",
+				step, key, key, dv.GetFrom(), from)}
+		}
+		return nil // a declared, reasoned downgrade naming this exact source
 	}
 
 	if !direct {
@@ -1088,7 +1123,7 @@ func checkStatePropagation(a Agent, step, key, expr string,
 	}
 
 	var diags []Diag
-	if stateRead < worst {
+	if !policy.Allows(stateRead, worst) {
 		diags = append(diags, bad("step %q: `set[%s]` is written from %s; the state "+
 			"field %s reads at %s, which is weaker. GetState publishes this message, so "+
 			"a state field must be at least as protected as what it is written from — "+
