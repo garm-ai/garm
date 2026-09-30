@@ -13,6 +13,7 @@ import (
 	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
 	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/contracts/policy"
 )
@@ -42,6 +43,7 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	for _, a := range agents {
 		out = append(out, lintAgentShape(a)...)
 		out = append(out, lintAgentPrompts(a, opts)...)
+		out = append(out, lintAgentMode(a)...)
 		if opts.PartialSet {
 			// Not silently: a rule that is skipped wherever nobody is
 			// looking is not a rule. Same treatment A2 gives a missing
@@ -124,6 +126,23 @@ func lintAgentShape(a Agent) []Diag {
 		switch string(md.Name()) {
 		case "Invoke", "GetRun":
 			continue
+		case "GetState":
+			// GetState's OUTPUT is the state type (spec §3.1). Recognised here
+			// rather than refused as a third method; A8 decides whether it is
+			// allowed in this mode, because that is a mode question and this is
+			// a shape one. (The descriptor itself is resolved onto
+			// Agent.StateMessage in Agents, the one walk that already visits
+			// every method.)
+			if md.Input().FullName() == runRefName {
+				continue
+			}
+		case "SetState":
+			out = append(out, Diag{Rule: "A1", Path: string(md.FullName()),
+				Msg: "an agent service may not declare SetState: the graph is " +
+					"the only writer of a run's state, and a method that mutated " +
+					"it would be reachable by a caller or by a model through " +
+					"another agent"})
+			continue
 		}
 		// "Third method" is the right word only when Invoke is present: a
 		// service that is missing Invoke and has one extra method does not
@@ -169,8 +188,14 @@ func lintAgentShape(a Agent) []Diag {
 // calls the same function for the same reason: there is exactly one
 // implementation of "does this resolve inside the tree."
 func lintAgentPrompts(a Agent, opts Options) []Diag {
+	// A workflow agent makes no generation call of its own, so it has no
+	// prompts to hash — A8 refuses them outright. Without this guard A2 and A8
+	// contradict each other and no valid workflow agent can lint.
+	if a.Policy.GetMode() == agentv1.Mode_MODE_WORKFLOW {
+		return nil
+	}
 	var out []Diag
-	svc := string(a.Service.FullName())
+	svc := string(a.FQN)
 	prompts := a.Policy.GetPrompts()
 
 	if _, ok := prompts["system"]; !ok {

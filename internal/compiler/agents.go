@@ -25,6 +25,12 @@ type Agent struct {
 	Service protoreflect.ServiceDescriptor
 	Policy  *agentv1.AgentPolicy
 
+	// FQN mirrors Service.FullName() and exists so a rule that only needs the
+	// name for a diagnostic's Path — A8, which judges the mode and the policy
+	// fields and nothing about the service's shape — does not have to hold a
+	// real descriptor to be unit-tested against a literal Agent{}.
+	FQN protoreflect.FullName
+
 	// Invoke is nil when the service declares no method called Invoke. That
 	// is an A1 error, reported by the rule, not by this reader.
 	Invoke protoreflect.MethodDescriptor
@@ -33,6 +39,15 @@ type Agent struct {
 	// design §2.2 says at most one, so an agent with no result-reading door
 	// is a valid declaration.
 	GetRun protoreflect.MethodDescriptor
+
+	// StateMessage is the output type of a GetState method whose input is
+	// garm.agent.v1.RunRef, or nil when the service declares none.
+	//
+	// Resolved here rather than shared with agentd's catalogue.Agent, which
+	// carries the same fact: that package reads a COMPILED catalogue and this
+	// one reads proto source, and a shared type would be a dependency from the
+	// daemon onto the CLI, which this repository's first invariant forbids.
+	StateMessage protoreflect.MessageDescriptor
 }
 
 // Agents collects every service carrying the agent option, in file-path order
@@ -50,7 +65,7 @@ func Agents(fds []protoreflect.FileDescriptor) []Agent {
 			if ap == nil {
 				continue
 			}
-			a := Agent{Service: svc, Policy: ap}
+			a := Agent{Service: svc, Policy: ap, FQN: svc.FullName()}
 			for j := 0; j < svc.Methods().Len(); j++ {
 				switch md := svc.Methods().Get(j); string(md.Name()) {
 				case "Invoke":
@@ -60,6 +75,15 @@ func Agents(fds []protoreflect.FileDescriptor) []Agent {
 				case "GetRun":
 					if a.GetRun == nil {
 						a.GetRun = md
+					}
+				case "GetState":
+					// GetState's OUTPUT is the state type (spec §3.1). Resolved
+					// here, in the one walk that already builds Agent, so A8
+					// (which needs to know whether it exists) and later rules
+					// which need the descriptor it names both read the same
+					// fact instead of re-walking the method list.
+					if a.StateMessage == nil && md.Input().FullName() == runRefName {
+						a.StateMessage = md.Output()
 					}
 				}
 			}
