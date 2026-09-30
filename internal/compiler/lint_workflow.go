@@ -248,6 +248,7 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) [
 	setEnvs := map[protoreflect.FullName]*cel.Env{}
 
 	out = append(out, lintWorkflowInitial(a, state, initial)...)
+	out = append(out, absentToolWarning(a, allowed, tools, opts)...)
 
 	for _, s := range p.GetSteps() {
 		id := s.GetId()
@@ -265,23 +266,19 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) [
 				"graph may only order what it already permits", id, s.GetTool())
 			continue
 		}
-		tool, ok := tools[s.GetTool()]
-		if !ok {
-			if opts.PartialSet {
-				out = append(out, Diag{Rule: "A7", Path: string(a.FQN), Warn: true,
-					Msg: fmt.Sprintf("step %q calls %s, which is not in this run's "+
-						"input: `with` keys against its request, `set` expressions "+
-						"against its response and the runner-owned fields of both "+
-						"are NOT checked here, because this run sees one directory "+
-						"rather than the catalogue. `garm lint` and `garm catalogue "+
-						"build` resolve the tool against the whole tree and do check "+
-						"them", id, s.GetTool())})
-				// The `set` KEYS still resolve: the state message is in this
-				// agent's own file, so an author who mistyped one is told here.
-				checkSetKeys(bad, state, id, s.GetSet())
+		tool, haveTool := tools[s.GetTool()]
+		if !haveTool {
+			if !opts.PartialSet {
+				bad("step %q calls %s, which no linted package declares", id, s.GetTool())
 				continue
 			}
-			bad("step %q calls %s, which no linted package declares", id, s.GetTool())
+			// absentToolWarning has already said, once, that this run cannot
+			// see the tool. What the agent's OWN file still answers is checked
+			// here: the `set` keys resolve against the state message, and every
+			// `with` expression is compiled against `state` — only the type FIT
+			// against a request field needs the tool that is missing.
+			checkSetKeys(bad, state, id, s.GetSet())
+			checkWithCompiles(bad, stateOnly, id, s.GetWith())
 			continue
 		}
 
@@ -420,6 +417,71 @@ func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map
 		}
 	}
 	return out
+}
+
+// absentToolWarning is the one warning a one-directory run produces: A7 could
+// not resolve the tools of some steps, because buf invokes the plugin per
+// directory and they live elsewhere.
+//
+// ONE per agent, not one per step, for two reasons. Every diagnostic here
+// carries the same Path — the agent's FQN — so N of them are N same-location
+// findings differing only in an interchangeable clause, which a reader is
+// entitled to skim as a repeat. And A3, the rule this warning is modelled on,
+// emits one per agent covering the whole allowlist rather than one per tool.
+//
+// The steps are listed in DECLARATION order, so the sentence is byte-identical
+// across runs; the checks that did not run and the commands that do run them
+// are stated once.
+func absentToolWarning(a Agent, allowed map[string]bool, tools map[string]Tool,
+	opts Options) []Diag {
+	if !opts.PartialSet {
+		return nil // with the whole set assembled there is nothing to defer to
+	}
+	var absent []string
+	for _, s := range a.Policy.GetSteps() {
+		// A step outside the allowlist is an error of its own, reported in the
+		// step loop; it is not something another command would resolve.
+		if !allowed[s.GetTool()] {
+			continue
+		}
+		if _, ok := tools[s.GetTool()]; !ok {
+			absent = append(absent, fmt.Sprintf("%s (%s)", s.GetId(), s.GetTool()))
+		}
+	}
+	if len(absent) == 0 {
+		return nil
+	}
+	return []Diag{{Rule: "A7", Path: string(a.FQN), Warn: true, Msg: fmt.Sprintf(
+		"the tools of these steps are not in this run's input: %s. So `with` keys "+
+			"against a tool's request, the type of each `with` value against the "+
+			"field it feeds, `set` expressions against a tool's response, and which "+
+			"request fields are the runner's are NOT checked here — this run sees one "+
+			"directory rather than the catalogue. `garm lint` and `garm catalogue "+
+			"build` resolve every tool against the whole tree and do check them. "+
+			"Everything answerable from this agent's own declaration, the rule that a "+
+			"state field is read only where every path has written it included, was "+
+			"checked and is an error above",
+		strings.Join(absent, ", "))}}
+}
+
+// checkWithCompiles compiles a step's `with` expressions against `state` alone
+// and reports the ones that do not compile.
+//
+// Reached only when the step's tool is absent under PartialSet. The type FIT of
+// a value against the request field it feeds needs that tool; whether the
+// expression compiles at all needs only the state message, which is in the
+// agent's own file. A7's own principle puts the second on this side of the
+// line, so a mistyped `state.nope` is refused on every `buf generate` and not
+// only where the catalogue is assembled.
+func checkWithCompiles(bad func(string, ...any), env *cel.Env,
+	step string, with map[string]string) {
+	for _, key := range sortedKeys(with) {
+		expr := with[key]
+		if _, iss := env.Compile(expr); iss != nil && iss.Err() != nil {
+			bad("step %q: `with[%s]` %q does not compile: %s",
+				step, key, expr, celMessages(iss))
+		}
+	}
 }
 
 // checkSetKeys resolves a step's `set` keys against the state message and

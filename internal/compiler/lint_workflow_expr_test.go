@@ -336,25 +336,50 @@ func TestStateSelectionsFindsNestedReads(t *testing.T) {
 // Under PartialSet a step's tool is simply not in the request, and that is
 // nobody's mistake. It warns, and the warning names the commands that do run
 // the check — the shape A3, A9 and P1 already have.
-func TestA7WarnsRatherThanErrorsWhenAToolIsOutsideThisDirectory(t *testing.T) {
+//
+// THREE steps, all of whose tools are absent, and exactly ONE warning. A
+// one-step fixture cannot tell one-per-agent from one-per-step, and one per step
+// would be three same-location findings differing only in an interchangeable
+// clause — which is not what A3, the model for this warning, does: it emits one
+// per agent covering the whole allowlist.
+func TestA7WarnsOncePerAgentWhenToolsAreOutsideThisDirectory(t *testing.T) {
 	a, _ := workflowExprFixture(t, `
 		initial: [{ key: "memo" value: "input.memo" }]
-		steps: [{ id: "pay" tool: "s.v1.pay" with: [{key:"memo" value:"state.memo"}] }]
-		edges: []`)
+		steps: [
+		  { id: "screen" tool: "s.v1.screen" },
+		  { id: "assess" tool: "s.v1.assess" },
+		  { id: "pay"    tool: "s.v1.pay" with: [{key:"memo" value:"state.memo"}] }
+		]
+		edges: [{ from: "screen" to: "assess" }, { from: "assess" to: "pay" }]`)
 	// An empty index is exactly what buf hands the plugin for the agent's own
-	// directory: the tool lives in s/v1, which is not in this request.
+	// directory: every tool lives in s/v1, which is not in this request.
 	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, Options{PartialSet: true})
 	if len(diags) != 1 {
-		t.Fatalf("want exactly one diagnostic, got %d: %v", len(diags), diags)
+		t.Fatalf("want exactly one diagnostic for three absent tools, got %d: %v",
+			len(diags), diags)
 	}
 	if !diags[0].Warn {
 		t.Errorf("an author running `buf generate` on one directory has done "+
 			"nothing wrong; this must be a warning: %v", diags[0])
 	}
-	for _, want := range []string{"garm lint", "garm catalogue build"} {
-		if !mentions(diags, want) {
-			t.Errorf("the warning must name %q, or the check is silently skipped "+
-				"where authors run it most; got %v", want, diags)
+	msg := diags[0].Msg
+	// Every step, so the author knows which of them went unchecked, and every
+	// tool, so they know where to look.
+	for _, want := range []string{"screen", "assess", "pay",
+		"s.v1.screen", "s.v1.assess", "s.v1.pay"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the warning must name %q; got %q", want, msg)
+		}
+	}
+	// Declaration order, so the sentence is byte-identical across runs.
+	if i, j, k := strings.Index(msg, "screen"), strings.Index(msg, "assess"),
+		strings.Index(msg, "pay ("); !(i < j && j < k) {
+		t.Errorf("the steps must be listed in declaration order; got %q", msg)
+	}
+	// And the skipped checks and the commands are stated ONCE, not per step.
+	for _, want := range []string{"garm lint", "garm catalogue build", "NOT checked here"} {
+		if n := strings.Count(msg, want); n != 1 {
+			t.Errorf("%q appears %d times, want 1: %q", want, n, msg)
 		}
 	}
 }
@@ -621,5 +646,34 @@ func TestA7RefusesAStepReadingItsOwnWrite(t *testing.T) {
 	if !mentions(diags, "this same step") {
 		t.Errorf("the refusal must say WHY, or the author reads that their own "+
 			"step does not dominate itself: %v", diags)
+	}
+}
+
+// A `with` expression that does not compile against `state` is an error under
+// PartialSet too. Only the type FIT of the value against the request field it
+// feeds needs the absent tool; whether `state.nope` is a field at all is
+// answered by the state message, which is in this agent's own file.
+func TestA7StillRefusesAnUncompilableWithExpressionUnderPartialSet(t *testing.T) {
+	a, _ := workflowExprFixture(t, `
+		initial: [{ key: "memo" value: "input.memo" }]
+		steps: [{ id: "pay" tool: "s.v1.pay" with: [{key:"memo" value:"state.nope"}] }]
+		edges: []`)
+	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, Options{PartialSet: true})
+	var refused bool
+	for _, d := range diags {
+		if d.Rule == "A7" && !d.Warn && strings.Contains(d.Msg, "does not compile") &&
+			strings.Contains(d.Msg, "nope") {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Fatalf("a mistyped state field in a `with` must error where the state "+
+			"message is visible, which is everywhere; got %v", diags)
+	}
+	// And the same expression is still refused with the whole set, or the check
+	// moved rather than being added.
+	full := lintWorkflowExpressions(a, nil)
+	if !hasRule(full, "A7") {
+		t.Errorf("want A7 with the whole set too; got %v", full)
 	}
 }

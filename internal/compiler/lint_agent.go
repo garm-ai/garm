@@ -419,19 +419,12 @@ func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullN
 // than from a Go message. RegisterDescriptor registers one file, so imports
 // are walked too — a request message with a google.protobuf.Timestamp field is
 // otherwise an unknown type the moment a guard touches it.
+// The body is celEnvFor's (lint_workflow.go) with one variable: same registry,
+// same import walk, same adapter and provider wiring. Written as a call rather
+// than repeated, so there is one place where "a CEL environment over a linted
+// tree's descriptors" is defined and A4 and A7 cannot drift apart.
 func guardEnv(md protoreflect.MessageDescriptor) (*cel.Env, error) {
-	reg, err := types.NewRegistry()
-	if err != nil {
-		return nil, err
-	}
-	if err := registerFileAndImports(reg, md.ParentFile(), map[string]bool{}); err != nil {
-		return nil, err
-	}
-	return cel.NewEnv(
-		cel.CustomTypeAdapter(reg),
-		cel.CustomTypeProvider(reg),
-		cel.Variable("args", cel.ObjectType(string(md.FullName()))),
-	)
+	return celEnvFor([]celVar{{name: "args", md: md}})
 }
 
 func registerFileAndImports(reg *types.Registry, fd protoreflect.FileDescriptor, seen map[string]bool) error {
