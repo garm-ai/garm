@@ -38,22 +38,27 @@ func TestTheTasksContractLints(t *testing.T) {
 		t.Fatalf("the contract's proto tree does not lint:\n%s", strings.Join(bad, "\n"))
 	}
 
-	// And the tools are the eight the design names, at the audiences it
+	// And the tools are the nine the design names, at the audiences it
 	// names. The audience is the half a set cannot express, and getting one
 	// of these wrong would hand a model a person's decision.
+	//
+	// get_task_grant is the ninth, added in contracts v0.9.0, and it is
+	// AUDIENCE_RUNNER for the same reason create_task is: a person never asks
+	// for the approval bytes, only a runner resuming the call they authorise.
 	tools, err := compiler.Tools(fds)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"create_task":   "[AUDIENCE_RUNNER]",
-		"list_tasks":    "[AUDIENCE_PERSON AUDIENCE_AGENT]",
-		"get_task":      "[AUDIENCE_PERSON AUDIENCE_AGENT]",
-		"approval_card": "[AUDIENCE_PERSON]",
-		"claim_task":    "[AUDIENCE_PERSON AUDIENCE_AGENT]",
-		"release_task":  "[AUDIENCE_PERSON AUDIENCE_AGENT]",
-		"decide_task":   "[AUDIENCE_PERSON]",
-		"triage_task":   "[AUDIENCE_AGENT AUDIENCE_PERSON]",
+		"create_task":    "[AUDIENCE_RUNNER]",
+		"list_tasks":     "[AUDIENCE_PERSON AUDIENCE_AGENT]",
+		"get_task":       "[AUDIENCE_PERSON AUDIENCE_AGENT]",
+		"approval_card":  "[AUDIENCE_PERSON]",
+		"claim_task":     "[AUDIENCE_PERSON AUDIENCE_AGENT]",
+		"release_task":   "[AUDIENCE_PERSON AUDIENCE_AGENT]",
+		"decide_task":    "[AUDIENCE_PERSON]",
+		"triage_task":    "[AUDIENCE_AGENT AUDIENCE_PERSON]",
+		"get_task_grant": "[AUDIENCE_RUNNER]",
 	}
 	got := map[string]string{}
 	for _, tl := range tools {
