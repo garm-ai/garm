@@ -11,7 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	cataloguev1 "github.com/garm-ai/contracts/garm/catalogue/v1"
 )
 
 // The catalogue's cost, measured rather than asserted.

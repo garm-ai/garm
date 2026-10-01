@@ -48,7 +48,10 @@ func TestConformance(t *testing.T) {
 			}
 
 			var got []string
-			for _, d := range compiler.Lint(fds) {
+			// The case directory IS the prompts root: a case that pins a
+			// prompt keeps it in `prompts/` beside its `case.proto`, which is
+			// the layout the flag defaults to in a real checkout.
+			for _, d := range compiler.LintWith(fds, compiler.Options{PromptsRoot: dir}) {
 				got = append(got, d.String())
 			}
 			actual := strings.Join(got, "\n")

@@ -1,5 +1,6 @@
 syntax = "proto3";
 package conformance.l1;
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/l1;c";
 
@@ -11,6 +12,7 @@ message Out {
   string id = 1;
 }
 service S {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc Go(In) returns (Out) {
     option (garm.tool.v1.tool) = {
       name: "go" title: "Go" description: "A field with no policy at all."

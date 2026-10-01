@@ -9,7 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	garm "github.com/garm-ai/garm"
+	"github.com/garm-ai/contracts"
+	"github.com/garm-ai/garm/internal/manifest"
 )
 
 const bufYAML = `version: v2
@@ -22,7 +23,7 @@ modules:
   # "garm/tool/v1/tool.proto" — while staying OUT of what is generated. Every
   # module in a buf v2 workspace is an input, so annotations living under
   # proto/ would have Go generated for them; that output is never usable,
-  # because the real one already exists in github.com/garm-ai/garm/contracts
+  # because the real one already exists in github.com/garm-ai/contracts
   # and two packages registering one proto file panic at init.
   #
   # BASIC lint because the rules meant for a contract you publish have no
@@ -84,7 +85,8 @@ func newInitCmd() *cobra.Command {
 		Use:   "init [directory]",
 		Short: "Scaffold a proto tree with the garm annotations vendored in",
 		Long: "init writes the garm annotations into your repository, along with\n" +
-			"a buf workspace configured to compile them.\n\n" +
+			"a buf workspace configured to compile them and the " + manifest.Filename + "\n" +
+			"that says what composes into this deployment's catalogue.\n\n" +
 			"The annotations are vendored rather than fetched: they are small,\n" +
 			"they are worth reading by whoever writes schemas against them, and\n" +
 			"a vendored file is one fewer host your build has to be allowed to\n" +
@@ -104,14 +106,37 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
+// scaffoldManifest is the catalogue.yaml a new project starts with.
+//
+// One `path:` entry, and the platform packages present as a commented block
+// rather than as live entries. That is a deliberate departure from design §1.1,
+// which asks for them "already in it", and the reason is the invariant in §2: a
+// module entry is refused unless the tree REQUIRES the module, and a tree this
+// command has just scaffolded has no go.mod at all. A live entry would be a
+// manifest that cannot build on the first `garm catalogue build`, which is a
+// worse introduction to the file than a comment naming the two commands that
+// make the entry real. The comment carries both.
+func scaffoldManifest(dir string) []byte {
+	return manifest.Render(&manifest.Manifest{
+		Schema:  manifest.Schema,
+		Name:    deploymentName(dir),
+		Include: []manifest.Entry{{Path: "proto"}},
+		Prompts: ".",
+	})
+}
+
 func runInit(cmd *cobra.Command, dir string, force bool) error {
 	files := []struct {
 		path string
 		body []byte
 	}{
-		{garm.VendoredAnnotationsPath, garm.AnnotationsProto},
+		{contracts.VendoredAnnotationsPath, contracts.AnnotationsProto},
+		{contracts.VendoredAgentAnnotationsPath, contracts.AgentAnnotationsProto},
+		{contracts.VendoredCardAnnotationsPath, contracts.CardAnnotationsProto},
+		{contracts.VendoredMetaAnnotationsPath, contracts.MetaAnnotationsProto},
 		{"buf.yaml", []byte(bufYAML)},
 		{"buf.gen.yaml", []byte(bufGenYAML)},
+		{manifest.Filename, scaffoldManifest(dir)},
 	}
 
 	// Check every target before writing any of them. A half-scaffolded tree
@@ -149,7 +174,8 @@ Next:
   2. Write a service in proto/ and annotate it: (garm.tool.v1.tool)
   3. garm lint
   4. garm gen            -> a typed Handler interface and a Serve for it
-  5. garm catalogue build -> the artifact a daemon loads
+  5. garm catalogue build -> the artifact a daemon loads, composed from
+                             catalogue.yaml
 
 Implement the generated Handler interface, then register it:
 

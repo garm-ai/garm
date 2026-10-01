@@ -11,7 +11,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	metav1 "github.com/garm-ai/contracts/garm/meta/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/internal/compiler"
 )
 
@@ -255,7 +256,7 @@ func buildLintFixture(
 		Dependency:  deps,
 		MessageType: []*descriptorpb.DescriptorProto{msg, leafMessage(o.leaf)},
 		Service: []*descriptorpb.ServiceDescriptorProto{
-			{Name: proto.String("S"), Method: svcMethods},
+			{Name: proto.String("S"), Method: svcMethods, Options: ownedService()},
 		},
 	}
 
@@ -410,6 +411,18 @@ func leafMessage(leaf *toolv1.FieldPolicy) *descriptorpb.DescriptorProto {
 			},
 		},
 	}
+}
+
+// ownedService is the (garm.meta.v1.owner) every fixture service carries.
+//
+// O1 warns on a tool service with no owner, and the good fixture must produce
+// ZERO diagnostics, warnings included — so a valid service now names its
+// owner, the way a valid field names its policy. lint_owner_test.go is where
+// the rule's own edges are exercised, from real proto source.
+func ownedService() *descriptorpb.ServiceOptions {
+	o := &descriptorpb.ServiceOptions{}
+	proto.SetExtension(o, metav1.E_Owner, &metav1.Owner{Team: "fixture"})
+	return o
 }
 
 func fieldOptions(fp *toolv1.FieldPolicy) *descriptorpb.FieldOptions {

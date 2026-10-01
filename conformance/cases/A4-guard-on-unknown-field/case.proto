@@ -1,0 +1,60 @@
+syntax = "proto3";
+package conformance.a4;
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/a4;c";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
+
+message Ask {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string question = 1;
+}
+message Pay {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional int64 amount_minor_units = 1;
+  optional string beneficiary_iban = 2;
+}
+message Paid {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+
+service Payments {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  rpc InitiatePayment(Pay) returns (Paid) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Pay" description: "Move money."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+    };
+  }
+}
+
+// The guard says `args.amount`; the field is `amount_minor_units`. CEL
+// resolves fields when it checks, so this is catchable here. Left to run time
+// it is a guard that errors on every call — which the runner treats as a
+// refusal, so the tool quietly becomes uncallable and the run burns its
+// bounds discovering that.
+service Assistant {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+    principal: { clearance: CLEARANCE_INTERNAL }
+    model: { alias: "fast" }
+    bounds: { max_steps: 8 max_tokens: 100000 max_tool_calls: 20 timeout: { seconds: 600 } }
+    prompts: { key: "system" value: { path: "prompts/system.md" sha256: "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a" } }
+    tools: [{ fqn: "conformance.a4.initiate_payment" guard: "args.amount <= 500000" }]
+  };
+  rpc Invoke(Ask) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant" title: "Assistant" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant_run" title: "Assistant run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+    };
+  }
+}

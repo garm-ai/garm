@@ -4,10 +4,12 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/garm-ai/garm/internal/compiler"
+	"github.com/garm-ai/garm/internal/contractsrepo"
 )
 
 // parseConnectGoOutput reads a real protoc-gen-connect-go output file and
@@ -67,12 +69,19 @@ func parseConnectGoOutput(t *testing.T, path string) (pkgName, handlerIface stri
 // regenerates these files differently, and this test fails on the very
 // next `go test` — long before it would otherwise surface as a compile
 // error in some other consumer's generated code.
+// The file it reads went with the contract, so this now reads a checkout of
+// garm-ai/contracts; see internal/contractsrepo. Generated connect-go output
+// is exactly the kind of thing a module dependency cannot supply — the
+// contract module does not compile that package into anything this one
+// imports, and the question is about the text.
 func TestConnectNamingMirror(t *testing.T) {
+	contracts := contractsrepo.Require(t)
 	for _, c := range []struct {
 		goPackageName, service string
 		connectGoFile          string
 	}{
-		{"testdata", "TestService", "../../policy/testdata/testdataconnect/fixture.connect.go"},
+		{"testdata", "TestService", filepath.Join(contracts,
+			"policy", "testdata", "testdataconnect", "fixture.connect.go")},
 	} {
 		wantPkg, wantIface := parseConnectGoOutput(t, c.connectGoFile)
 

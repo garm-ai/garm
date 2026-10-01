@@ -11,8 +11,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
-	"github.com/garm-ai/garm/policy"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 )
 
 // Diag is one lint finding. Warn=false fails the build.
@@ -35,8 +35,81 @@ func (d Diag) String() string {
 // from an explicit ToolPolicy.Name or is derived by DefaultToolName.
 var toolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
-// Lint runs every rule this package owns (L1-L11, L19, L20 — L8 is vacant,
-// superseded — plus L12-L18, L21-L24 and L26-L29) over the input set.
+// Options is the context a rule needs that a descriptor set cannot carry.
+//
+// Every field here is context the CALLER has and the descriptors do not: the same
+// descriptor set is linted by `garm lint`, by `garm catalogue build` and by the
+// protoc plugin, and only the first two know where the tree came from on disk or
+// what its manifest declares. Nothing in here is a path baked into a rule.
+type Options struct {
+	// PromptsRoot is the directory a prompts.*.path (A2) is resolved
+	// against — the directory containing the proto tree.
+	//
+	// Empty means the caller could not supply one. The protoc plugin is
+	// invoked by buf once per proto package with no notion of a tree root,
+	// so A2 warns there rather than checking, and says which command does
+	// check. Silently skipping would make A2 a rule that is enforced
+	// wherever nobody is looking.
+	PromptsRoot string
+
+	// PartialSet says the input is one generation unit, not the catalogue.
+	// buf runs the protoc plugin once per directory, so an agent's allowlist
+	// cannot be resolved there: the tools it names live in other
+	// directories that are not in the request. With PartialSet the
+	// catalogue-scoped rules — A3, and the guard compilation half of A4 —
+	// warn that they were not checked here and name the commands that do
+	// check them, instead of refusing every agent that names a tool
+	// outside its own directory. `garm lint` and `garm catalogue build` see
+	// the whole tree and never set this.
+	PartialSet bool
+
+	// Taxonomy is the deployment's declared vocabulary, from `catalogue.yaml`.
+	//
+	// Nil means the caller has none to supply, and the vocabulary is then
+	// scraped from file-level proto options and unioned by name across the set
+	// — the behaviour before v0.22.0, and the behaviour for a tree that has not
+	// declared one. Non-nil REPLACES that entirely rather than adding to it:
+	// the point of declaring a vocabulary is that adopting a tool stops
+	// silently extending it, and a union would preserve exactly the thing the
+	// key exists to end.
+	//
+	// The protoc plugin never has one. buf invokes it per directory with a
+	// descriptor set and no manifest, which is why the rules that resolve a
+	// name against the vocabulary warn under PartialSet instead of refusing.
+	Taxonomy *Taxonomy
+}
+
+// Taxonomy is a declared vocabulary, supplied by a caller that read one.
+//
+// Two slices of the contract's own Decl rather than a type of this package's,
+// because these values go into the artifact on `Catalogue`'s fields 3 and 4
+// unchanged. Nothing converts them on the way through, so nothing can lose a
+// description between the manifest and the daemon.
+type Taxonomy struct {
+	Compartments []*toolv1.Decl
+	ToolSets     []*toolv1.Decl
+}
+
+// vocabulary is the compartments and tool sets in force for one lint run, and
+// whether they were declared or scraped.
+//
+// The bool is not cosmetic: two rules judge the PROTO declarations themselves
+// (L28's name format, L29's same-name-different-declaration conflict) and when
+// a manifest declares the vocabulary those declarations are read by nothing —
+// not the registry, not the tool-set check, not the artifact. So the two rules
+// have no subject, which is a different thing from being switched off.
+func vocabulary(fds []protoreflect.FileDescriptor, opts Options) (
+	compartments, toolSets []*toolv1.Decl, declared bool) {
+	if opts.Taxonomy != nil {
+		return opts.Taxonomy.Compartments, opts.Taxonomy.ToolSets, true
+	}
+	return DeclaredCompartments(fds), DeclaredSets(fds), false
+}
+
+// LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
+// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, A9, A10, C1,
+// C8, C9, O1 and P1)
+// over the input set, with the supplied options.
 //
 // L28 is the declared-name-format rule that landed on main in PR #36; it is
 // thirty lines below, having arrived here on rebase. L29 was chosen over the
@@ -49,8 +122,8 @@ var toolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // Go-level check rather than a descriptor one; it is deliberately not
 // implemented here and its number is not reused.
 //
-// Lint is a thin dispatcher on purpose: Task 10 owns L12-L18 and L21-L24 and
-// appends its own diagnostics here without needing to touch
+// LintWith is a thin dispatcher on purpose: Task 10 owns L12-L18 and L21-L24
+// and appends its own diagnostics here without needing to touch
 // lintFieldAndShapeRules' internals. The one exception is L22: it needs
 // lintMessage's existing per-field walk of the *output* message (to find a
 // RESTRICTED read clearance) cross-referenced with the tool's
@@ -58,17 +131,74 @@ var toolNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 // Rather than write a second walker over the same message just to duplicate
 // that traversal, lintMessage takes a recordResponse flag and reports L22
 // itself when walking a tool's output.
-func Lint(fds []protoreflect.FileDescriptor) []Diag {
-	out := lintFieldAndShapeRules(fds)
+//
+// A1-A5 are the agent rules (program plan §3.2) and live in lint_agent.go.
+// They are dispatched from here rather than from Lint because A2 needs a
+// prompts root, which a descriptor set does not carry.
+//
+// L34 (runner-supplied fields, lint_source.go) is a per-tool walk of the
+// request and response messages like lintMessage's, kept apart from it because
+// it judges one annotation field and nothing lintMessage computes.
+//
+// C1 (card templates, lint_card.go) and O1 (owners, lint_owner.go) are the
+// studio cards rules (design §3.4, §3.5). Both are per-service or per-method
+// and need nothing from the rest of the tree, so they run everywhere,
+// PartialSet included.
+//
+// C8 (lint_section.go) holds a template's Section to being a floor: a child
+// may be labelled higher, never lower. It is per-service or per-method like
+// C1.
+//
+// C9 (lint_synth.go) guards the names contracts/cards will add to the
+// catalogue after lint has run. It is per-service and needs nothing from the
+// rest of the tree, so it runs everywhere too.
+//
+// A9 and A10 (audience, lint_audience.go) are the cards-and-tasks rules the
+// design numbers A9′ and A10′. A9 resolves a manifest's allowlist against
+// the catalogue, so it runs beside A3 and warns off with it under
+// PartialSet; A10 needs only the tool's own service, so it runs in the
+// per-tool loop with everything else.
+//
+// A6, A7 and A8 (lint_workflow.go) are the workflow-mode rules. A8 holds the
+// mode and the policy fields to agreeing and A6 holds the graph to being one;
+// both need only the agent's own declaration. A7 is split, and the split is the
+// interesting part: the half that type-checks a step's `with` against the
+// tool's REQUEST descriptor is catalogue-scoped and warns off under PartialSet
+// beside A3, while the half that refuses a read of a state field not written on
+// every path errors everywhere — it finds the reads by parsing, so it needs no
+// descriptor but the state message, which is in the agent's own file.
+//
+// P1 (required platform packages, lint_required.go) is the catalogue-scoped
+// rule that opens a new letter, because it judges neither an agent nor a card:
+// a declaration that depends on a capability another
+// PACKAGE provides must find that package in the same catalogue. It warns off
+// under PartialSet for the same reason A3 does — one directory cannot answer a
+// question about the assembled set — and it is an error everywhere else.
+func LintWith(fds []protoreflect.FileDescriptor, opts Options) []Diag {
+	out := lintFieldAndShapeRules(fds, opts)
 	out = append(out, lintServiceCoverage(fds)...)
 	tools, _ := Tools(fds)
 	out = append(out, LintEffects(tools)...)
 	out = append(out, lintMaterialFields(tools)...)
+	out = append(out, lintRunnerFields(tools)...)
+	out = append(out, lintRequiredPackages(fds, tools, opts)...)
+	out = append(out, lintAgents(fds, opts)...)
+	out = append(out, lintCards(fds)...)
+	out = append(out, lintSynthesisedNames(fds)...)
+	out = append(out, lintSectionFloors(fds)...)
+	out = append(out, lintOwners(fds)...)
 	return out
 }
 
+// Lint is LintWith with zero options: the entry point for callers with no
+// filesystem context to supply — the protoc plugin, and the unit tests of
+// rules that need none.
+func Lint(fds []protoreflect.FileDescriptor) []Diag {
+	return LintWith(fds, Options{})
+}
+
 // lintFieldAndShapeRules implements L1-L11, L19, L20 and L29.
-func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor) []Diag {
+func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	var out []Diag
 
 	// L29 must run, and be appended to `out`, before the compartments
@@ -92,12 +222,26 @@ func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor) []Diag {
 	// declaration conflict in the run. It was missed because it is a
 	// rebase interaction: L28 arrived from main after L29 was written, so
 	// neither side's suite ever ran the two together.
-	out = append(out, lintDeclaredConflicts(fds)...)
-
-	compartments := DeclaredCompartments(fds)
+	compartments, setDecls, fromManifest := vocabulary(fds, opts)
 	sets := map[string]bool{}
-	for _, d := range DeclaredSets(fds) {
+	for _, d := range setDecls {
 		sets[d.GetName()] = true
+	}
+
+	// L29 and L28 judge the declarations written in PROTO OPTIONS. When a
+	// manifest declares the vocabulary those options are read by nothing — the
+	// registry below, the tool-set check and the artifact's fields 3 and 4 all
+	// come from `catalogue.yaml` — so the two rules have no subject. That is not
+	// the same as a rule switched off where nobody is looking: the input they
+	// judge has stopped being an input, and refusing a deployment for a
+	// disagreement between two adopted files it does not read would be the
+	// linter enforcing a vocabulary nobody uses.
+	//
+	// The manifest's own names are checked where they are written, by
+	// manifest.Taxonomy.validate — with the same contracts validator, and with a
+	// message that can point at the line somebody typed.
+	if !fromManifest {
+		out = append(out, lintDeclaredConflicts(fds)...)
 	}
 
 	// L28 — a declared name becomes a Go constant, a JWT claim value, a
@@ -109,8 +253,7 @@ func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor) []Diag {
 	// same names and would fail first, reporting a correct message under
 	// the wrong rule number and stopping before tool sets were checked at
 	// all. L28 owns name format; L7 owns undeclared references.
-	if bad := append(lintDeclNames(compartments, "compartment"),
-		lintDeclNames(DeclaredSets(fds), "tool set")...); len(bad) > 0 {
+	if bad := declNameDiags(compartments, setDecls, fromManifest); len(bad) > 0 {
 		// append(out, ...), not `return bad`. This early return discards
 		// everything already in `out` if it returns bare, and L29 is in
 		// there — so ONE malformed name anywhere hid EVERY declaration
@@ -131,12 +274,13 @@ func lintFieldAndShapeRules(fds []protoreflect.FileDescriptor) []Diag {
 	for _, tl := range tools {
 		path := string(tl.Method.FullName())
 
-		out = append(out, lintToolShape(tl, path, seenName, sets)...)
-		out = append(out, lintMessage(tl.Method.Input(), reg, path+"(input)", false)...)
+		out = append(out, lintToolShape(tl, path, seenName, sets, opts)...)
+		out = append(out, lintMessage(tl.Method.Input(), reg, path+"(input)", false, opts)...)
 		out = append(out, lintMessage(tl.Method.Output(), reg, path+"(output)",
-			tl.Policy.GetAudit().GetRecordResponse())...)
+			tl.Policy.GetAudit().GetRecordResponse(), opts)...)
 		out = append(out, lintExamples(tl, path)...)
 		out = append(out, lintVisibility(tl, reg, path)...)
+		out = append(out, lintApprovalCardAudience(tl, approvalCardMethodName)...)
 	}
 	return out
 }
@@ -204,7 +348,7 @@ func declConflicts(fds []protoreflect.FileDescriptor, xt protoreflect.ExtensionT
 }
 
 // lintToolShape covers L2, L3, L4 and L20.
-func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]bool) []Diag {
+func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]bool, opts Options) []Diag {
 	var out []Diag
 	p := t.Policy
 
@@ -271,9 +415,9 @@ func lintToolShape(t Tool, path string, seen map[string]string, sets map[string]
 
 	for _, name := range p.GetSets() {
 		if !sets[name] {
-			out = append(out, Diag{Rule: "L20", Path: path, Msg: fmt.Sprintf(
+			out = append(out, undeclaredDiag("L20", path, opts, fmt.Sprintf(
 				"undeclared tool set %q; a typo here makes the tool invisible to "+
-					"sessions scoped to that set, with no error", name)})
+					"sessions scoped to that set, with no error", name)))
 		}
 	}
 	return out
@@ -306,7 +450,7 @@ func flatFQN(pkg, name string) string {
 	return strings.ReplaceAll(pkg+"."+name, ".", "_")
 }
 
-func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path string, recordResponse bool) []Diag {
+func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path string, recordResponse bool, opts Options) []Diag {
 	var out []Diag
 	// seen is PATH-scoped (note the defer delete), exactly like
 	// policy.compileInto's. A globally-scoped seen — what this walk used
@@ -320,6 +464,14 @@ func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path s
 	var walk func(protoreflect.MessageDescriptor, string)
 
 	walk = func(md protoreflect.MessageDescriptor, prefix string) {
+		// The same stop Compile makes at its root: a card is an opaque
+		// value to the field-policy walk (policy.IsOpaqueLeafMessage), and
+		// a card endpoint's whole response is one. Walking in would report
+		// every element of the vocabulary unlabelled, against a type whose
+		// policy travels on the value instead.
+		if policy.IsOpaqueLeafMessage(md) {
+			return
+		}
 		// L26 — a cycle in the message graph reachable from a tool.
 		//
 		// policy.Compile cannot flatten a cycle into its finite Plan and
@@ -359,9 +511,11 @@ func lintMessage(md protoreflect.MessageDescriptor, reg *policy.Registry, path s
 					Msg: "read clearance is unspecified"})
 			}
 
-			// L7 — compartments must be declared.
+			// L7 — compartments must be declared. A whole-set rule for the
+			// same reason as L20: the vocabulary may be declared in the
+			// manifest, which the plugin never sees.
 			if _, err := reg.Set(fp.GetCompartments()); err != nil {
-				out = append(out, Diag{Rule: "L7", Path: name, Msg: err.Error()})
+				out = append(out, undeclaredDiag("L7", name, opts, err.Error()))
 			}
 
 			// L5 — the redaction must accept this field's kind.
@@ -580,4 +734,52 @@ func lintDeclNames(decls []*toolv1.Decl, kind string) []Diag {
 		}
 	}
 	return out
+}
+
+// undeclaredDiag reports a name that resolves against no declaration, as an
+// error where the whole vocabulary is visible and a warning where it is not.
+//
+// L7's reference half and L20 became whole-set rules in v0.22.0, joining A3, A9
+// and P1 in the group PartialSet turns into warnings. The reason is the taxonomy
+// moving into `catalogue.yaml`: buf invokes the protoc plugin once per directory
+// with a descriptor set and no manifest, so the plugin cannot tell an undeclared
+// name from one declared in a file it was not handed.
+//
+// This is a real loss and it is the right trade. Before the move, a tree whose
+// taxonomy proto sat in the same directory as its tools got the typo caught by
+// `garm gen`; it no longer will, and `garm lint` and `garm catalogue build`
+// still do. What the old behaviour cost was worse: the bank could not delete its
+// COPY of `tools/taxonomy`, because the research assistant names the `research`
+// set and the plugin, seeing one directory, refused it — `catalogue build` was
+// content and `mise run gen` failed on two L20 errors. A rule that forces a tree
+// to keep a copy in order to pass is a rule enforcing the thing the manifest
+// exists to remove.
+//
+// Not silent, and that is the whole shape of this group: the diagnostic names
+// the commands that do check, so a warning here is a statement about this run
+// rather than a rule quietly not applying.
+func undeclaredDiag(rule, path string, opts Options, msg string) Diag {
+	if !opts.PartialSet {
+		return Diag{Rule: rule, Path: path, Msg: msg}
+	}
+	return Diag{Rule: rule, Path: path, Warn: true, Msg: msg +
+		". NOT CHECKED HERE: this run sees one directory, and a deployment's " +
+		"vocabulary is declared in catalogue.yaml or in a file this run was not " +
+		"handed. `garm lint` and `garm catalogue build` resolve it against the " +
+		"whole catalogue and do refuse an undeclared name"}
+}
+
+// declNameDiags covers L28 — the format of a declared name — over whichever
+// declarations are the vocabulary.
+//
+// When they came from a manifest there is nothing to report: manifest.Taxonomy
+// validates every name with the same contracts validator at parse time, before
+// any of this runs, and its refusal can name the line of YAML. Duplicating it
+// here would mean two messages for one mistake and the worse one arriving first.
+func declNameDiags(compartments, toolSets []*toolv1.Decl, fromManifest bool) []Diag {
+	if fromManifest {
+		return nil
+	}
+	return append(lintDeclNames(compartments, "compartment"),
+		lintDeclNames(toolSets, "tool set")...)
 }

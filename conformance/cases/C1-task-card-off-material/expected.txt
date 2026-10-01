@@ -1,0 +1,1 @@
+error: C1: conformance.c1.Payments.InitiatePayment: task_card body[0].facts[0] references {beneficiary_name}, which is not in approval.material_fields ["amount_minor_units" "currency_code"]; the task stores the material fields and nothing else of the request, so a card can only show those

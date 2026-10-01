@@ -1,0 +1,42 @@
+syntax = "proto3";
+package conformance.c1;
+import "buf/validate/validate.proto";
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
+// The task queue, because this case declares a MODE_GRANT approval and P1
+// requires the package that serves it to be in the same catalogue: without
+// it the call parks on a task nobody can open. The file resolves from the
+// linked registry, so there is nothing on disk to keep in step.
+import "garm/tasks/v1/tasks.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/c1;c";
+
+message InitiatePaymentRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional int64  amount_minor_units = 1 [(buf.validate.field).required = true];
+  optional string currency_code      = 2 [(buf.validate.field).required = true];
+  optional string beneficiary_name   = 3;
+}
+message InitiatePaymentResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_INTERNAL on_deny: { omit: {} } };
+  optional string payment_id = 1;
+}
+
+// The task card references beneficiary_name, which is on the request but not
+// among the material fields. The task stores the material fields and nothing
+// else of the request, so the approver would see a fact that is not there.
+service Payments {
+  option (garm.meta.v1.owner) = { team: "payments-platform" contact: "#payments-oncall" };
+  rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment" title: "Initiate a payment" description: "Move money."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+      approval: { mode: MODE_GRANT approver_min_clearance: CLEARANCE_RESTRICTED
+                  max_grant_age_seconds: 900 material_fields: ["amount_minor_units", "currency_code"] }
+    };
+    option (garm.card.v1.task_card) = {
+      title: "Payment of {amount_minor_units} {currency_code}"
+      body: [{ facts: { facts: [{ field: "beneficiary_name" label: "To" }] } }]
+    };
+  }
+}

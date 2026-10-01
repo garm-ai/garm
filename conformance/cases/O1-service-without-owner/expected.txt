@@ -1,0 +1,1 @@
+warning: O1: conformance.o1.Calculator: carries no (garm.meta.v1.owner); every card built from this service names who is answerable for it, and this one would name nobody. A warning in v0.15.0 so existing catalogues still build; an error in a later release

@@ -11,12 +11,12 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 const (
 	toolplanePkg  = protogen.GoImportPath("github.com/garm-ai/garm/toolplane")
-	garmv1Pkg     = protogen.GoImportPath("github.com/garm-ai/garm/contracts/garm/tool/v1")
+	garmv1Pkg     = protogen.GoImportPath("github.com/garm-ai/contracts/garm/tool/v1")
 	connectRPCPkg = protogen.GoImportPath("connectrpc.com/connect")
 	httpPkg       = protogen.GoImportPath("net/http")
 	contextPkg    = protogen.GoImportPath("context")

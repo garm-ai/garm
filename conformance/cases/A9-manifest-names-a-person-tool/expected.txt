@@ -1,0 +1,1 @@
+error: A9: conformance.a9.Assistant: tools[0].fqn "conformance.a9.decide_task" has audience [AUDIENCE_PERSON], which does not admit an agent; a model is never offered it, so an allowlist entry naming it can only lie about what this agent can do. Card endpoints, a person's decision and a runner's call are all this one fact

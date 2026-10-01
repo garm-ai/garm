@@ -1,0 +1,59 @@
+syntax = "proto3";
+package conformance.a9;
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/a9;c";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "support" description: "Support desk." }] };
+
+message Ask {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string question = 1;
+}
+message Decision {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string task_id = 1;
+  optional string reason  = 2;
+}
+
+service Tasks {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  // A person decides. The audience says so, and that is the whole of the
+  // protection: no set to remember, no allowlist to get right.
+  rpc DecideTask(Decision) returns (Decision) {
+    option (garm.tool.v1.tool) = {
+      name: "decide_task" title: "Decide a task" description: "Approve or decline."
+      verb: VERB_WRITE min_clearance: CLEARANCE_PUBLIC audience: [AUDIENCE_PERSON]
+    };
+  }
+}
+
+// The agent's allowlist names decide_task. The agent's clearance reaches it
+// and its compartments are fine, so A3 is silent; what is wrong is that a
+// model is never offered a PERSON tool at all, so this entry can only lie
+// about what the agent can do.
+service Assistant {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+    principal: { clearance: CLEARANCE_INTERNAL }
+    model: { alias: "fast" }
+    bounds: { max_steps: 8 max_tokens: 100000 max_tool_calls: 20 timeout: { seconds: 600 } }
+    prompts: { key: "system" value: { path: "prompts/system.md" sha256: "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a" } }
+    tools: [{ fqn: "conformance.a9.decide_task" }]
+  };
+  rpc Invoke(Ask) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant" title: "Assistant" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+      audience: [AUDIENCE_PERSON, AUDIENCE_AGENT]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "assistant_run" title: "Assistant run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["support"]
+      audience: [AUDIENCE_PERSON, AUDIENCE_AGENT]
+    };
+  }
+}

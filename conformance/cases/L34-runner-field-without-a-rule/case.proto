@@ -1,0 +1,28 @@
+syntax = "proto3";
+package conformance.l34;
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/l34;c";
+
+// source: SOURCE_RUNNER says the caller may not set this field and the model
+// never sees it; the runner that dispatches the call fills it. The only rule a
+// runner knows in this release is `idempotency_key` = `<run_id>-<dispatch seq>`,
+// so a runner field with any other name is a request nobody can send.
+message In {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional int64 amount = 1;
+  string correlation_id = 2 [(garm.tool.v1.field_policy) = { read: CLEARANCE_PUBLIC on_deny: { mask: {} } source: SOURCE_RUNNER }];
+}
+message Out {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string id = 1;
+}
+service S {
+  option (garm.meta.v1.owner) = { team: "conformance" };
+  rpc Go(In) returns (Out) {
+    option (garm.tool.v1.tool) = {
+      name: "go" title: "Go" description: "A runner field the runner has no rule for."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL
+    };
+  }
+}

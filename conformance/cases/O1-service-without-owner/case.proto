@@ -1,0 +1,25 @@
+syntax = "proto3";
+package conformance.o1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/conformance/o1;c";
+
+message AddRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double a = 1;
+  optional double b = 2;
+}
+message AddResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double sum = 1;
+}
+
+// A governed tool with nobody answerable for it. Every card built from this
+// service would say so. A warning in v0.15.0; see docs/catalogue.md.
+service Calculator {
+  rpc Add(AddRequest) returns (AddResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "add" title: "Add" description: "Add two numbers."
+      verb: VERB_READ min_clearance: CLEARANCE_PUBLIC
+    };
+  }
+}

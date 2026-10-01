@@ -26,9 +26,9 @@ import (
 	"sort"
 	"strings"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/policy"
 	"github.com/garm-ai/garm/internal/compiler"
-	"github.com/garm-ai/garm/policy"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -90,9 +90,12 @@ func Diff(before, after []protoreflect.FileDescriptor) ([]Change, error) {
 			out = append(out, Change{
 				Direction: Widening,
 				Subject:   fqn,
-				What:      fmt.Sprintf("new tool, %s, min_clearance %s", verb(n.Policy), clearance(n.Policy)),
+				What: fmt.Sprintf("new tool, %s, min_clearance %s, %s",
+					verb(n.Policy), clearance(n.Policy), sets(n.Policy)),
 				Why: "a tool that did not exist is now reachable. New surface is " +
-					"widening even when it is correct",
+					"widening even when it is correct. The sets bound who gets it: " +
+					"a tool in no set reaches only an unscoped caller, and one in a " +
+					"set reaches every session scoped to it",
 			})
 		case !inNew:
 			out = append(out, Change{
@@ -156,26 +159,275 @@ func compareTool(fqn string, o, n *toolv1.ToolPolicy) []Change {
 			"the tool now requires supervision it did not")
 	}
 
+	out = append(out, compareApproval(fqn, o.GetApproval(), n.GetApproval())...)
+
 	if auditRank(n.GetAudit().GetLevel()) < auditRank(o.GetAudit().GetLevel()) {
 		add(Widening, fmt.Sprintf("audit.level %s → %s",
 			o.GetAudit().GetLevel(), n.GetAudit().GetLevel()),
 			"less is recorded about a call than was recorded before")
 	}
+	if auditRank(n.GetAudit().GetLevel()) > auditRank(o.GetAudit().GetLevel()) {
+		add(Narrowing, fmt.Sprintf("audit.level %s → %s",
+			o.GetAudit().GetLevel(), n.GetAudit().GetLevel()),
+			"more is recorded, and LEVEL_AUDIT is what makes garmd write the "+
+				"stream at all. A tool that moves up to it will not mount without "+
+				"a Sink configured behind it")
+	}
 	if o.GetAudit().GetFailClosed() && !n.GetAudit().GetFailClosed() {
 		add(Widening, "audit.fail_closed removed",
 			"the call may now proceed when its record cannot be written")
+	}
+	if !o.GetAudit().GetFailClosed() && n.GetAudit().GetFailClosed() {
+		add(Narrowing, "audit.fail_closed added",
+			"the call is refused before it runs when its record cannot be "+
+				"written. Correct, and an availability change: the tool now fails "+
+				"when the ledger does")
 	}
 	if n.GetAudit().GetRetainDays() < o.GetAudit().GetRetainDays() {
 		add(Widening, fmt.Sprintf("audit.retain_days %d → %d",
 			o.GetAudit().GetRetainDays(), n.GetAudit().GetRetainDays()),
 			"the record is kept for less time than it was")
 	}
+	if n.GetAudit().GetRetainDays() > o.GetAudit().GetRetainDays() {
+		add(Narrowing, fmt.Sprintf("audit.retain_days %d → %d",
+			o.GetAudit().GetRetainDays(), n.GetAudit().GetRetainDays()),
+			"the record is kept for longer. garmd compares this against the "+
+				"retention the Sink actually has, so a tool asking for more than "+
+				"the lake keeps will not mount")
+	}
+
+	// Only the block's PRESENCE, because only its presence is read: garmd
+	// projects the annotation down to one `HasAuthorization` bool and refuses
+	// to mount the tool without a checker behind it. The relation, the object
+	// type and the field selectors inside it reach no engine at all, so a diff
+	// reporting a change to them would be describing a decision nothing makes.
 	if o.GetAuthorization() != nil && n.GetAuthorization() == nil {
 		add(Widening, "authorization block removed",
 			"per-instance authorization no longer runs; clearance and "+
 				"compartments are all that stands in front of the object")
 	}
+	if o.GetAuthorization() == nil && n.GetAuthorization() != nil {
+		add(Narrowing, "authorization block added",
+			"a per-instance check now stands in front of the object, so holding "+
+				"the clearance and the compartments is no longer sufficient. The "+
+				"tool will not mount until a checker is configured")
+	}
+
+	out = append(out, compareSets(fqn, o.GetSets(), n.GetSets())...)
+	out = append(out, compareAudience(fqn, o.GetAudience(), n.GetAudience())...)
 	return out
+}
+
+// compareApproval reads the sub-fields that decide WHO may approve and WHAT a
+// grant is good for. Every one of them is enforced — by garmd at spend time,
+// by tasksd on the decision and by agentd as the predicate deciding who even
+// sees the ask — so a change to any of them changes who can authorise a call.
+func compareApproval(fqn string, o, n *toolv1.Approval) []Change {
+	var out []Change
+	add := func(d Direction, what, why string) {
+		out = append(out, Change{Direction: d, Subject: fqn, What: what, Why: why})
+	}
+
+	if o.GetApproverMinClearance() != n.GetApproverMinClearance() {
+		d, why := Narrowing, "a smaller group of people may approve it"
+		if rank(n.GetApproverMinClearance()) < rank(o.GetApproverMinClearance()) {
+			d, why = Widening, "everyone cleared below the old bar may now approve "+
+				"the call. The bar on CALLING the tool has not moved; the bar on "+
+				"authorising it has, which is the same disclosure reached one step later"
+		}
+		add(d, fmt.Sprintf("approval.approver_min_clearance %s → %s",
+			o.GetApproverMinClearance(), n.GetApproverMinClearance()), why)
+	}
+	for _, c := range removed(o.GetApproverCompartments(), n.GetApproverCompartments()) {
+		add(Widening, fmt.Sprintf("approval.approver_compartments %q no longer required", c),
+			"a wider group of people may approve the call. Need-to-know applied "+
+				"to the approver, not to the caller")
+	}
+	for _, c := range removed(n.GetApproverCompartments(), o.GetApproverCompartments()) {
+		add(Narrowing, fmt.Sprintf("approval.approver_compartments %q now required", c),
+			"only people holding it may approve; everyone else's decision is refused")
+	}
+
+	switch ao, an := o.GetMaxGrantAgeSeconds(), n.GetMaxGrantAgeSeconds(); {
+	case ao == an:
+	case ao != 0 && an == 0:
+		add(Unclear, fmt.Sprintf("approval.max_grant_age_seconds %d → unset", ao),
+			"the ceiling on how old a grant may be is gone. Not a widening, "+
+				"because garmd refuses to start at all when a MODE_GRANT tool "+
+				"declares no ceiling — so this is either a tool that no longer "+
+				"needs a grant, or a deployment that will not boot")
+	case ao == 0 && an != 0:
+		add(Narrowing, fmt.Sprintf("approval.max_grant_age_seconds unset → %d", an),
+			"a grant older than this is now refused, and the issuer cannot raise it")
+	case an > ao:
+		add(Widening, fmt.Sprintf("approval.max_grant_age_seconds %d → %d", ao, an),
+			"one approval now authorises calls for longer. A grant is reusable "+
+				"inside its window, so this multiplies what a single human decision buys")
+	default:
+		add(Narrowing, fmt.Sprintf("approval.max_grant_age_seconds %d → %d", ao, an),
+			"a grant goes stale sooner, so an approver is asked more often")
+	}
+
+	// material_fields is the sub-field most worth a sentence, because losing it
+	// is silent at every other layer: the tool still requires approval, the
+	// approver still needs their clearance, and the grant simply stops being
+	// about the request it was given for.
+	if len(o.GetMaterialFields()) > 0 && len(n.GetMaterialFields()) == 0 {
+		add(Widening, fmt.Sprintf("approval.material_fields %s → none", list(o.GetMaterialFields())),
+			"a grant now binds only the tool, the subject and the time, so one "+
+				"approval authorises ANY call to this tool inside its window — "+
+				"approve ten pounds, send ten thousand. Approval is still required "+
+				"and no longer says what was approved")
+	} else if len(o.GetMaterialFields()) == 0 && len(n.GetMaterialFields()) > 0 {
+		add(Narrowing, fmt.Sprintf("approval.material_fields none → %s", list(n.GetMaterialFields())),
+			"the grant now carries a digest over these values and garmd refuses "+
+				"a request that does not match: the human approved THIS call rather "+
+				"than a call to this tool")
+	} else {
+		for _, f := range removed(o.GetMaterialFields(), n.GetMaterialFields()) {
+			add(Widening, fmt.Sprintf("approval.material_fields %q dropped", f),
+				"the grant no longer binds this value, so a request may change it "+
+					"after the approval and still be accepted")
+		}
+		for _, f := range removed(n.GetMaterialFields(), o.GetMaterialFields()) {
+			add(Narrowing, fmt.Sprintf("approval.material_fields %q added", f),
+				"the grant now binds this value too, so an outstanding grant that "+
+					"did not digest it is refused")
+		}
+	}
+	return out
+}
+
+// compareAudience reports a change to who a tool is OFFERED to.
+//
+// Always Unclear, and the reason is worth stating rather than inferring: an
+// audience is a listing rule and not a gate. garmd consults it when it builds
+// a caller's list and never in the predicate that admits an invoke, so
+// widening an audience grants nobody anything they could not already call, and
+// narrowing one hides a tool from a client whose caller may still invoke it by
+// name. Neither is a movement of the boundary, and putting either in the
+// widening bucket would teach people to skim that bucket.
+//
+// It is reported at all because mistaking this field for a gate is exactly how
+// `decide_task` came to be unreachable: it declared `audience: [PERSON]` and no
+// set, written as though the audience were the scoping.
+func compareAudience(fqn string, o, n []toolv1.Audience) []Change {
+	if audienceKey(o) == audienceKey(n) {
+		return nil
+	}
+	return []Change{{
+		Direction: Unclear, Subject: fqn,
+		What: fmt.Sprintf("audience %s → %s", audienceNames(o), audienceNames(n)),
+		Why: "who the tool is OFFERED to changed. An audience is a listing rule " +
+			"and not a gate — nothing in the invoke chain reads it — so this " +
+			"neither grants nor revokes reach. What it changes is which clients " +
+			"show the tool, and an empty list means AUDIENCE_AGENT rather than " +
+			"everyone. If the intent was to scope who may CALL it, that is `sets`",
+	}}
+}
+
+// audienceKey normalises so that reordering is not a change and so that an
+// empty list compares equal to an explicit [AUDIENCE_AGENT] — which is what the
+// contract says it means.
+func audienceKey(as []toolv1.Audience) string {
+	if len(as) == 0 {
+		as = []toolv1.Audience{toolv1.Audience_AUDIENCE_AGENT}
+	}
+	ns := make([]string, 0, len(as))
+	for _, a := range as {
+		ns = append(ns, a.String())
+	}
+	sort.Strings(ns)
+	return strings.Join(ns, ",")
+}
+
+func audienceNames(as []toolv1.Audience) string {
+	if len(as) == 0 {
+		return "[AUDIENCE_AGENT] (declared empty)"
+	}
+	ns := make([]string, 0, len(as))
+	for _, a := range as {
+		ns = append(ns, a.String())
+	}
+	sort.Strings(ns)
+	return "[" + strings.Join(ns, ", ") + "]"
+}
+
+// compareSets reports what a change of tool-set membership does to reach.
+//
+// Sets are not a bar and not a lattice. garmd's visibility predicate ends in
+// inScope(the session's sets, the tool's sets), and that predicate is
+// asymmetric in the way that makes every casual reading of this field wrong:
+//
+//	a session naming NO sets is UNSCOPED and reaches every tool it is
+//	otherwise entitled to, whatever sets that tool declares;
+//	a session naming sets reaches only tools declaring one of them — and a
+//	tool declaring NO sets shares none with it, so a tool in no set is out
+//	of scope for every scoped session there is.
+//
+// So membership grants and revokes reach on its own, without a clearance or a
+// compartment moving, and the two transitions across empty are the ones that
+// mislead. A tool gaining its FIRST set is a grant and never a revocation,
+// because the unscoped caller held it throughout. A tool losing its LAST set
+// reads as a restriction lifted and is a revocation from every scoped session
+// at once.
+//
+// This is reported per set rather than as one line of before-and-after because
+// the audience that gains `triage` is a different audience from the one that
+// loses `payments`, and a reviewer has to agree to them separately.
+func compareSets(fqn string, o, n []string) []Change {
+	var out []Change
+	add := func(d Direction, what, why string) {
+		out = append(out, Change{Direction: d, Subject: fqn, What: what, Why: why})
+	}
+
+	switch {
+	case len(o) == 0 && len(n) == 0:
+		return nil
+
+	case len(o) == 0:
+		add(Widening, fmt.Sprintf("sets none → %s — the tool is now scoped", list(n)),
+			"it was in no set, so every session scoped to any set was refused it "+
+				"and only an unscoped caller could reach it at all. Every session "+
+				"scoped to one of these now reaches it too. Nobody loses it — an "+
+				"unscoped caller is not narrowed by sets — so this is a grant of "+
+				"access with no clearance and no compartment moved")
+
+	case len(n) == 0:
+		add(Narrowing, fmt.Sprintf("sets %s → none — the tool is now in no set", list(o)),
+			"this reads as a restriction lifted and is the opposite. A tool in no "+
+				"set shares none with a session that names one, so every scoped "+
+				"session loses it at once and gets not-found rather than "+
+				"permission-denied. What is left is the unscoped caller, which in a "+
+				"deployment where every staff role is scoped is the least privileged "+
+				"role and nothing else")
+
+	default:
+		for _, s := range removed(n, o) {
+			add(Widening, fmt.Sprintf("set %q added", s),
+				"every session scoped to it now reaches the tool. Membership is "+
+					"reach rather than a bar, so this grants access without "+
+					"lowering a clearance or dropping a compartment")
+		}
+		for _, s := range removed(o, n) {
+			add(Narrowing, fmt.Sprintf("set %q removed", s),
+				"a session scoped to it and to nothing else the tool still "+
+					"declares can no longer reach the tool, and is told not-found "+
+					"rather than permission-denied")
+		}
+	}
+	return out
+}
+
+// list renders a set of names for a message, sorted so the sentence does not
+// depend on declaration order.
+func list(ss []string) string {
+	cp := append([]string(nil), ss...)
+	sort.Strings(cp)
+	for i, s := range cp {
+		cp[i] = fmt.Sprintf("%q", s)
+	}
+	return "[" + strings.Join(cp, ", ") + "]"
 }
 
 // compareFields walks the messages a tool actually exposes.
@@ -224,6 +476,24 @@ func compareField(path string, o, n *toolv1.FieldPolicy) []Change {
 		}
 		add(d, fmt.Sprintf("read %s → %s", o.GetRead(), n.GetRead()), why)
 	}
+
+	// write, resolved rather than as written: an unset `write` means the same
+	// as `read`, so a field whose read bar moved has had its write bar moved
+	// with it, and comparing the raw values would report nothing.
+	//
+	// It is a separate line from read because it is a separate consequence.
+	// read decides who SEES a response value; write decides who may SET a
+	// request value, and garmd refuses the whole call — it does not quietly
+	// drop the field — when a caller sets one it may not.
+	if ow, nw := writeOf(o), writeOf(n); ow != nw {
+		d, why := Narrowing, "fewer callers may set the value; the rest are refused the call"
+		if rank(nw) < rank(ow) {
+			d, why = Widening, "every caller cleared below the old bar may now set "+
+				"this request field. A write bar is not a redaction: the value the "+
+				"caller supplies is the one the tool acts on"
+		}
+		add(d, fmt.Sprintf("write %s → %s", ow, nw), why)
+	}
 	for _, c := range removed(o.GetCompartments(), n.GetCompartments()) {
 		add(Widening, fmt.Sprintf("compartment %q no longer required to read", c),
 			"a wider audience reads the value in full")
@@ -240,6 +510,24 @@ func compareField(path string, o, n *toolv1.FieldPolicy) []Change {
 	if !o.GetAuditOnRead() && n.GetAuditOnRead() {
 		add(Narrowing, "audit_on_read added", "reads are now recorded")
 	}
+	// source says the value is the RUNNER's rather than the caller's. Dropping
+	// it does not move a clearance and hands the field to whoever is calling,
+	// which for the one rule that exists — idempotency_key — is the difference
+	// between a retry that is recognised and a second payment.
+	if o.GetSource() == toolv1.FieldPolicy_SOURCE_RUNNER &&
+		n.GetSource() != toolv1.FieldPolicy_SOURCE_RUNNER {
+		add(Widening, "source SOURCE_RUNNER → the caller's",
+			"the field was filled by the dispatching runner and is now the "+
+				"caller's to supply. A model picking its own idempotency key after "+
+				"a timeout it never saw the answer to pays twice")
+	}
+	if o.GetSource() != toolv1.FieldPolicy_SOURCE_RUNNER &&
+		n.GetSource() == toolv1.FieldPolicy_SOURCE_RUNNER {
+		add(Narrowing, "source the caller's → SOURCE_RUNNER",
+			"the field leaves the schema the caller is offered and is filled by "+
+				"the runner. Breaking for anything that was setting it")
+	}
+
 	if redactionKind(o.GetOnDeny()) != redactionKind(n.GetOnDeny()) {
 		add(Unclear, fmt.Sprintf("on_deny %s → %s",
 			redactionKind(o.GetOnDeny()), redactionKind(n.GetOnDeny())),
@@ -299,9 +587,26 @@ func toolsByFQN(fds []protoreflect.FileDescriptor) (map[string]compiler.Tool, er
 	}
 	out := make(map[string]compiler.Tool, len(ts))
 	for _, t := range ts {
-		out[string(t.Method.ParentFile().Package())+"."+t.Name] = t
+		out[toolKey(string(t.Method.ParentFile().Package()), t.Name)] = t
 	}
 	return out, nil
+}
+
+// toolKey is the FQN a tool is reported under, and the reason `name` is not
+// compared as a field: it is half of this key, so renaming a tool presents as
+// the old FQN removed and a new one added. That is what a rename IS to a grant
+// naming the old FQN and to a manifest pinning it.
+func toolKey(pkg, name string) string { return pkg + "." + name }
+
+// writeOf is the write clearance actually in force. The contract says an unset
+// `write` is the same as `read`, and garmd's plan compiler resolves it that
+// way, so a comparison reading the raw field would miss every field that
+// inherits.
+func writeOf(p *toolv1.FieldPolicy) toolv1.Clearance {
+	if p.GetWrite() == toolv1.Clearance_CLEARANCE_UNSPECIFIED {
+		return p.GetRead()
+	}
+	return p.GetWrite()
 }
 
 // rank orders clearance so a comparison can say which way it moved. Zero for
@@ -349,6 +654,13 @@ func redactionKind(r *toolv1.Redaction) string {
 
 func verb(p *toolv1.ToolPolicy) string      { return p.GetVerb().String() }
 func clearance(p *toolv1.ToolPolicy) string { return p.GetMinClearance().String() }
+
+func sets(p *toolv1.ToolPolicy) string {
+	if len(p.GetSets()) == 0 {
+		return "in no set"
+	}
+	return "sets " + list(p.GetSets())
+}
 
 // removed returns the members of a not present in b.
 func removed(a, b []string) []string {

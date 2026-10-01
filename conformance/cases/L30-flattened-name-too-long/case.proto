@@ -1,6 +1,7 @@
 syntax = "proto3";
 // A plausible enterprise package: deep, and every segment meaningful.
 package conformance.acme.financial.services.payments.v1;
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 option go_package = "example.com/conformance/l30;l30";
 
@@ -13,6 +14,7 @@ message Out {
   string status = 1;
 }
 service S {
+  option (garm.meta.v1.owner) = { team: "conformance" };
   rpc Get(In) returns (Out) {
     option (garm.tool.v1.tool) = {
       name: "list_international_wire_transfers"

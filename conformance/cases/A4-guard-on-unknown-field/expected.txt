@@ -1,0 +1,1 @@
+error: A4: conformance.a4.Assistant: tools[0].guard "args.amount <= 500000" does not compile against conformance.a4.Pay: undefined field 'amount'

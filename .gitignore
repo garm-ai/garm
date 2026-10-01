@@ -6,10 +6,18 @@ bin/
 /protoc-gen-garm-go
 /protoc-gen-garm-python
 
-# Go workspace state. go.work IS committed — it is how the parent module and
-# contracts/ resolve during development, and a checkout without it does not
-# build. go.work.sum is a local resolution cache and is not.
+# Go workspace state. There is one module here now — the contract is an
+# ordinary dependency at a released tag, not a nested module — so a go.work is
+# a contributor's local business and neither file is committed. A committed
+# workspace would also hide the one thing worth testing: that this module
+# builds against the published contract rather than a checkout.
+go.work
 go.work.sum
+
+# Where CI checks garm-ai/contracts out for the three tests that read its
+# source. A contributor who clones it here instead of beside this repository
+# should not commit it.
+/.contracts/
 
 # Test and coverage output
 *.out
@@ -30,3 +38,7 @@ mise.local.toml
 # Catalogue artifacts are built, not committed. Running `garm catalogue
 # build` while testing is the easy way to leave a multi-megabyte file here.
 *.binpb
+
+# The subagent-driven-development workspace: ledgers, briefs, review
+# packages. Git-ignored scratch an agent writes for itself.
+/.superpowers/

@@ -1,21 +1,20 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"fmt"
 	"os"
-	"sort"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
-	garm "github.com/garm-ai/garm"
-	cataloguev1 "github.com/garm-ai/garm/contracts/garm/catalogue/v1"
+	"github.com/garm-ai/garm/internal/catalogue"
 	"github.com/garm-ai/garm/internal/compile"
 	"github.com/garm-ai/garm/internal/compiler"
+	"github.com/garm-ai/garm/internal/manifest"
 )
 
 func newCatalogueCmd() *cobra.Command {
@@ -24,18 +23,30 @@ func newCatalogueCmd() *cobra.Command {
 		Short: "Build and inspect the artifact a daemon serves",
 		RunE:  func(c *cobra.Command, _ []string) error { return c.Help() },
 	}
-	cmd.AddCommand(newCatalogueBuildCmd(), newCatalogueDiffCmd())
+	cmd.AddCommand(newCatalogueInitCmd(), newCatalogueBuildCmd(),
+		newCatalogueDiffCmd(), newCataloguePublishCmd())
 	return cmd
 }
 
 func newCatalogueBuildCmd() *cobra.Command {
-	var protoDir, out, source string
+	var manifestPath, protoDir, promptsRoot, out, source string
 	var stampTime bool
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Compile a proto tree into a catalogue",
-		Long: "build compiles the proto tree and writes the artifact a daemon loads\n" +
-			"at boot.\n\n" +
+		Short: "Compose a catalogue from the inputs catalogue.yaml declares",
+		Long: "build reads catalogue.yaml, composes every input it declares, and\n" +
+			"writes the artifact a daemon loads at boot.\n\n" +
+			"An input is a directory in this tree or proto packages from a Go\n" +
+			"module the tree requires. The manifest names WHAT to include and\n" +
+			"go.mod says WHICH VERSION: a module that is not a requirement is\n" +
+			"refused, and a `version:` key is readability that has to agree with\n" +
+			"what the module graph resolves. Nothing is fetched that `go mod\n" +
+			"download` would not fetch — the protos are read from the module\n" +
+			"cache, so this works offline once it is warm.\n\n" +
+			"Two inputs declaring one proto package is refused, naming both. The\n" +
+			"order of `include` is presentation: the inputs are sorted before\n" +
+			"they are stamped, so the digest does not move when somebody\n" +
+			"reorders the file.\n\n" +
 			"It lints first and refuses on any error. A catalogue that does not\n" +
 			"lint cannot be built — the alternative is an artifact that fails at\n" +
 			"the daemon's mount check instead, where the author is not present\n" +
@@ -45,121 +56,261 @@ func newCatalogueBuildCmd() *cobra.Command {
 			"upgraded a CLI on their laptop.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCatalogueBuild(cmd, protoDir, out, source, stampTime)
+			return runCatalogueBuild(cmd, buildFlags{
+				inputFlags: inputFlags{
+					manifest: manifestPath,
+					protoDir: protoDir,
+					protoSet: cmd.Flags().Changed("proto"),
+				},
+				promptsRoot: promptsRoot,
+				out:         out,
+				source:      source,
+				stampTime:   stampTime,
+			})
 		},
 	}
-	cmd.Flags().StringVar(&protoDir, "proto", "proto", "Root of the proto tree")
+	cmd.Flags().StringVarP(&manifestPath, "manifest", "f", "",
+		"The manifest to compose from (default: "+manifest.Filename+" in the working directory)")
+	cmd.Flags().StringVar(&protoDir, "proto", "proto",
+		"DEPRECATED: build from this one directory instead of a manifest, as a manifest with a "+
+			"single `path:` entry. Used only when there is no "+manifest.Filename+", or when given "+
+			"explicitly. Write a manifest instead: it is the input that can name a module")
+	cmd.Flags().StringVar(&promptsRoot, "prompts-root", "",
+		"Directory an agent's prompts.*.path resolves against (default: the manifest's `prompts:`, "+
+			"or the parent of --proto)")
 	cmd.Flags().StringVarP(&out, "out", "o", "catalogue.binpb", "Where to write the artifact")
-	cmd.Flags().StringVar(&source, "source", "", "Free-form provenance: a repository and commit, a pipeline id")
+	cmd.Flags().StringVar(&source, "source", "",
+		"Free-form provenance: a repository and commit, a pipeline id. Overrides the manifest's `source:`")
 	cmd.Flags().BoolVar(&stampTime, "stamp-time", false,
 		"Record the build time. Breaks byte-reproducibility: two builds of the same source will differ")
 	return cmd
 }
 
-func runCatalogueBuild(cmd *cobra.Command, protoDir, out, source string, stampTime bool) error {
-	set, fds, err := compile.Tree(cmd.Context(), protoDir)
+// inputFlags is how a command was told what to compose: the manifest, or the
+// deprecated single directory.
+//
+// Its own type because `catalogue build` and `lint` take the same three flags
+// and must resolve them the same way. They used not to — lint took one
+// directory and only the builder read a manifest — and the consequence was that
+// the rules needing the whole assembled set (A3's allowlist, and P1's required
+// platform package) saw a manifest's inputs from the builder and never from the
+// linter. So `garm lint` over a composed tree checked the deployment's own
+// protos and not what it adopts, which makes the linter's promise — that it
+// cannot pass and then fail at build time — false for exactly the rules that
+// are hardest to diagnose later.
+type inputFlags struct {
+	manifest string
+	protoDir string
+	// protoSet records whether --proto was given, which is what distinguishes
+	// "this tree has not migrated" from "somebody asked for the old behaviour".
+	// A default value cannot answer that, and getting it wrong would mean a
+	// tree with a manifest silently built from proto/ instead.
+	protoSet bool
+}
+
+// buildFlags is what the user typed, gathered so that resolving it into inputs
+// is one function with no cobra in it.
+type buildFlags struct {
+	inputFlags
+	promptsRoot string
+	out         string
+	source      string
+	stampTime   bool
+}
+
+// runCatalogueBuild is the command's half of `catalogue build`: it finds the
+// inputs, compiles them, and prints what internal/catalogue decided.
+//
+// Every judgement lives elsewhere — the module invariant and the collision rules
+// in internal/manifest, the lint gate and the refusal of a tree with no tools
+// and the order the cards are synthesised in relative to the hashes in
+// internal/catalogue. What is left here is what a command is for: which input
+// the flags name, where the artifact goes, which stream each line belongs on,
+// and the exit code.
+func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
+	m, dir, origin, err := findManifest(f.inputFlags)
 	if err != nil {
 		return err
 	}
 
-	// Lint before building, never after. See the command's Long.
-	diags := compiler.Lint(fds)
-	errs := 0
+	source := f.source
+	if source == "" {
+		source = m.Source
+	}
+	set, fds, inputs, err := compose(cmd.Context(), dir, m, source)
+	if err != nil {
+		return err
+	}
+
+	req := catalogue.Request{
+		Set:         set,
+		Descriptors: fds,
+		Origin:      origin,
+		PromptsRoot: promptsRoot(f.promptsRoot, f.inputFlags, m, dir),
+		Source:      source,
+		Inputs:      manifest.Provenance(inputs),
+		Taxonomy:    taxonomyOf(m),
+		Producer:    "garm/" + version(),
+		Compiler:    compile.Version(),
+	}
+	// The build time is off by default; the flag's help says what it costs and
+	// Request.BuiltAt says why.
+	if f.stampTime {
+		req.BuiltAt = time.Now().UTC()
+	}
+
+	res, diags, err := catalogue.Build(req)
+	// Printed whether the build succeeded or not, and never counted here: the
+	// refusal is Build's, not this command's.
 	for _, d := range diags {
 		fmt.Fprintln(cmd.ErrOrStderr(), d.String())
-		if !d.Warn {
-			errs++
-		}
 	}
-	if errs > 0 {
-		return fmt.Errorf("refusing to build a catalogue with %d policy error(s)", errs)
-	}
-
-	tools, err := compiler.Tools(fds)
 	if err != nil {
 		return err
 	}
-	if len(tools) == 0 {
-		return fmt.Errorf("no tools declared under %s: a catalogue with nothing in it "+
-			"would start a daemon that serves nothing, which is a deployment nobody meant", protoDir)
+
+	if err := os.WriteFile(f.out, res.Body, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", f.out, err)
 	}
 
-	// Comments come out of the descriptors and into a flat table before the
-	// artifact is written. SourceCodeInfo carries spans and paths for every
-	// token in every file; a projected schema only ever needed the prose.
-	// Measured on a 10,000-tool catalogue: 9.7 MB and 180 MB retained becomes
-	// 3.7 MB and 93 MB.
-	docs := compiler.FieldDocs(fds)
-	for _, f := range set.GetFile() {
-		f.SourceCodeInfo = nil
-	}
-
-	// One hash per proto package, matching how the generator emits them: a
-	// binding is per package, so a service serves one package and advertises
-	// one digest.
-	byPkg := map[string][]compiler.Tool{}
-	for _, t := range tools {
-		pkg := string(t.Method.ParentFile().Package())
-		byPkg[pkg] = append(byPkg[pkg], t)
-	}
-	hashes := make(map[string]string, len(byPkg))
-	for pkg, ts := range byPkg {
-		hashes[pkg] = compiler.DescriptorHash(ts)
-	}
-
-	cat := &cataloguev1.Catalogue{
-		AnnotationSchemaVersion: garm.AnnotationSchemaVersion,
-		Files:                   set,
-		Compartments:            compiler.DeclaredCompartments(fds),
-		ToolSets:                compiler.DeclaredSets(fds),
-		FieldDocs:               docs,
-		DescriptorHashes:        hashes,
-		Provenance: &cataloguev1.Provenance{
-			Producer: "garm/" + version(),
-			Compiler: compile.Version(),
-			Source:   source,
-		},
-	}
-
-	// The build time is off by default, and that is the whole reason this
-	// artifact is reproducible.
-	//
-	// A digest that moves on every rebuild of identical source identifies the
-	// BUILD, not the content — so redeploying the same catalogue would look
-	// like a change, and "are these two deployments serving the same tools"
-	// would be unanswerable. A wall clock buys little that `source` does not
-	// already carry, so it is opt-in and says what it costs.
-	if stampTime {
-		cat.Provenance.BuiltAt = timestamppb.New(time.Now().UTC())
-	}
-
-	// Deterministic marshalling: field order is already stable for a given
-	// binary, and this pins map ordering too, which matters the moment any
-	// option carries a map.
-	body, err := (proto.MarshalOptions{Deterministic: true}).Marshal(cat)
-	if err != nil {
-		return fmt.Errorf("marshalling the catalogue: %w", err)
-	}
-	if err := os.WriteFile(out, body, 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", out, err)
-	}
-
-	sum := sha256.Sum256(body)
-	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", out)
+	cat := res.Catalogue
+	fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", f.out)
 	fmt.Fprintf(cmd.OutOrStdout(), "  %d tool(s) in %d package(s), %d file(s), %d documented field(s), schema v%d\n",
-		len(tools), len(hashes), len(set.GetFile()), len(docs), garm.AnnotationSchemaVersion)
-	fmt.Fprintf(cmd.OutOrStdout(), "  digest sha256:%s\n", hex.EncodeToString(sum[:]))
-	// The FQN is proto package + resolved tool name, split at the last dot
-	// by everything that consumes it. Built here rather than read off Tool
-	// because the generator composes it the same way at emit time.
-	names := make([]string, 0, len(tools))
-	for _, t := range tools {
-		pkg := t.Method.ParentFile().Package()
-		names = append(names, fmt.Sprintf("%s.%s", pkg, t.Name))
-	}
-	sort.Strings(names)
-	for _, n := range names {
+		len(res.ToolNames), len(cat.GetDescriptorHashes()), len(cat.GetFiles().GetFile()),
+		len(cat.GetFieldDocs()), cat.GetAnnotationSchemaVersion())
+	fmt.Fprintf(cmd.OutOrStdout(), "  %d synthesised card endpoint(s)\n", res.SynthesisedCards)
+	fmt.Fprintf(cmd.OutOrStdout(), "  digest %s\n", res.Digest)
+	for _, n := range res.ToolNames {
 		fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", n)
 	}
 	return nil
+}
+
+// compose resolves a manifest's inputs and compiles them as one set.
+//
+// Shared by `catalogue build` and `garm lint` so that the two see the same
+// assembled catalogue. That is not tidiness: the rules that need the whole set —
+// A3's agent allowlist, A9's audience and P1's required platform package —
+// cannot be checked against one input, and a linter that saw a subset of what
+// the builder composes would pass a tree the build then refuses. `garm lint`'s
+// whole promise is that it cannot pass and then fail later.
+//
+// The three refusals in here are the manifest's own and they belong to both
+// commands for the same reason: a module the tree does not require, two inputs
+// declaring one proto package, and a module entry naming a package the module
+// does not declare are all questions about the assembled set, and the linter is
+// the command people run first.
+func compose(ctx context.Context, dir string, m *manifest.Manifest, source string) (
+	*descriptorpb.FileDescriptorSet, []protoreflect.FileDescriptor, []*manifest.Input, error) {
+	inputs, err := manifest.Resolve(ctx, dir, m, source)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	set, fds, err := compile.Union(ctx, manifest.Roots(inputs))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// After the union and not before: which package an input declares is a fact
+	// about the descriptors, and a check against the manifest's own names would
+	// only report the manifest back to itself.
+	if err := manifest.Packages(inputs, set); err != nil {
+		return nil, nil, nil, err
+	}
+	return set, fds, inputs, nil
+}
+
+// findManifest decides what a command composes: the manifest a flag named, the
+// one convention found, or the single directory --proto names. Shared by
+// `catalogue build` and `garm lint`, which must agree about it.
+//
+// The precedence is the one that keeps `garm catalogue build` with no arguments
+// right in both worlds. A manifest is the primary input, so it wins whenever
+// there is one; a tree that has not migrated still builds from proto/, because
+// every runbook and CI pipeline in the estate passes --proto and none of them
+// should break on a minor release. What is NOT allowed is both at once: --proto
+// and --manifest name two different inputs, and picking one silently would build
+// something other than what was asked for.
+//
+// It returns the manifest, the directory paths inside it resolve against, and
+// the origin a refusal names.
+func findManifest(f inputFlags) (*manifest.Manifest, string, string, error) {
+	switch {
+	case f.manifest != "" && f.protoSet:
+		return nil, "", "", fmt.Errorf("--manifest %s and --proto %s name two different inputs. "+
+			"A manifest already says which directories compose into the catalogue, so pass one "+
+			"or the other", f.manifest, f.protoDir)
+
+	case f.manifest != "":
+		m, err := manifest.Load(f.manifest)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return m, filepath.Dir(f.manifest), f.manifest, nil
+
+	case !f.protoSet:
+		if path, ok := manifest.Find("."); ok {
+			m, err := manifest.Load(path)
+			if err != nil {
+				return nil, "", "", err
+			}
+			return m, ".", path, nil
+		}
+		if _, err := os.Stat(f.protoDir); err != nil {
+			return nil, "", "", fmt.Errorf("no %s here and no %s/ either: a catalogue is "+
+				"composed from the inputs a manifest declares, so there is nothing to "+
+				"compose. Write one with `garm catalogue init`, or name a directory with "+
+				"--proto", manifest.Filename, f.protoDir)
+		}
+	}
+	// The single-input case, spelled as what it is: a manifest with one path
+	// entry. Composition is then one code path rather than two, so the
+	// deprecated flag cannot drift away from the supported input — and the
+	// artifact records its one local input the same way a composed one does.
+	return singleTree(f.protoDir), ".", f.protoDir, nil
+}
+
+func singleTree(dir string) *manifest.Manifest {
+	return &manifest.Manifest{
+		Schema:  manifest.Schema,
+		Name:    dir,
+		Include: []manifest.Entry{{Path: dir}},
+	}
+}
+
+// promptsRoot answers "relative to what" for an agent's prompts.*.path.
+//
+// --prompts-root wins because it always did. Then the manifest's `prompts:`,
+// relative to the manifest — which is the deployment's own answer and the one a
+// composed build needs, since the tree's root is no longer derivable from a
+// --proto directory. Then the historical default: the parent of --proto, because
+// `--proto proto` means the prompts are beside it and not inside it.
+//
+// A prompt that a COMPOSED agent pins lives in ITS module and is not reachable
+// from any of these; `catalogue publish` resolves those per input, and the entry
+// key that says where is parsed and carried already.
+func promptsRoot(flag string, f inputFlags, m *manifest.Manifest, dir string) string {
+	switch {
+	case flag != "":
+		return flag
+	case m.Prompts != "":
+		return filepath.Join(dir, m.Prompts)
+	default:
+		return resolvePromptsRoot("", f.protoDir)
+	}
+}
+
+// taxonomyOf is the manifest's declared vocabulary in the shape the compiler and
+// the builder take, or nil when the manifest declares none.
+//
+// Nil rather than an empty Taxonomy, and the difference is the whole migration:
+// nil means "scrape the file-level proto options", which is what every tree
+// built before v0.22.0 depends on and what `--proto` will always mean, since a
+// synthesised one-entry manifest has no taxonomy to declare. A non-nil value
+// replaces the scrape entirely.
+func taxonomyOf(m *manifest.Manifest) *compiler.Taxonomy {
+	compartments, toolSets := m.Taxonomy.Decls()
+	if compartments == nil && toolSets == nil {
+		return nil
+	}
+	return &compiler.Taxonomy{Compartments: compartments, ToolSets: toolSets}
 }

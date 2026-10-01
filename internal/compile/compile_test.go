@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/garm/internal/compile"
 )
 
@@ -153,7 +153,7 @@ func TestTheLinkedAnnotationsBeatAVendoredCopy(t *testing.T) {
 	const stale = `syntax = "proto3";
 package garm.tool.v1;
 import "google/protobuf/descriptor.proto";
-option go_package = "github.com/garm-ai/garm/contracts/garm/tool/v1;toolv1";
+option go_package = "github.com/garm-ai/contracts/garm/tool/v1;toolv1";
 message ToolPolicy { string name = 1; }
 extend google.protobuf.MethodOptions { ToolPolicy tool = 50002; }
 `
@@ -303,5 +303,101 @@ service Aggregator {
 func TestVersionAlwaysNamesACompiler(t *testing.T) {
 	if got := compile.Version(); !strings.HasPrefix(got, "protocompile/") {
 		t.Fatalf("Version() = %q, want a protocompile/ identifier for the catalogue's provenance", got)
+	}
+}
+
+// Two roots, and an import that crosses between them.
+//
+// This is what a buf workspace does and what the manifest needs: every input's
+// root on the import path, so a deployment's own proto can import a file out of
+// an adopted module without a copy of that file in its tree. Compiling the roots
+// separately would produce two descriptor sets that cannot reference each other,
+// which is why there is one compiler call and not one per root.
+func TestUnionResolvesAnImportAcrossRoots(t *testing.T) {
+	a := tree(t, map[string]string{"acme/v1/calc.proto": calc})
+	b := tree(t, map[string]string{"other/v1/wrap.proto": `syntax = "proto3";
+package other.v1;
+import "acme/v1/calc.proto";
+option go_package = "example.com/other/gen/other/v1;otherv1";
+message Wrapped {
+  acme.v1.AddRequest inner = 1;
+}
+`})
+	set, _, err := compile.Union(t.Context(), []compile.Root{
+		{Path: b, Files: []string{"other/v1/wrap.proto"}},
+		{Path: a, Files: []string{"acme/v1/calc.proto"}},
+	})
+	if err != nil {
+		t.Fatalf("Union: %v", err)
+	}
+	for _, want := range []string{"acme/v1/calc.proto", "other/v1/wrap.proto"} {
+		found := false
+		for _, f := range set.GetFile() {
+			if f.GetName() == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s is missing from the union", want)
+		}
+	}
+}
+
+// The order the roots arrive in does not reach the bytes.
+//
+// The file order of a FileDescriptorSet is part of the artifact, and a manifest's
+// `include` order is a human's to change — so a catalogue whose digest moved when
+// somebody sorted that list would be identified by the file rather than by its
+// content. One sort over every root's files together is what makes the order a
+// function of the paths alone.
+func TestUnionIsIndependentOfRootOrder(t *testing.T) {
+	a := tree(t, map[string]string{"acme/v1/calc.proto": calc})
+	b := tree(t, map[string]string{"other/v1/wrap.proto": `syntax = "proto3";
+package other.v1;
+import "acme/v1/calc.proto";
+option go_package = "example.com/other/gen/other/v1;otherv1";
+message Wrapped {
+  acme.v1.AddRequest inner = 1;
+}
+`})
+	ra := compile.Root{Path: a, Files: []string{"acme/v1/calc.proto"}}
+	rb := compile.Root{Path: b, Files: []string{"other/v1/wrap.proto"}}
+	bytesOf := func(roots ...compile.Root) string {
+		set, _, err := compile.Union(t.Context(), roots)
+		if err != nil {
+			t.Fatalf("Union: %v", err)
+		}
+		out, err := proto.MarshalOptions{Deterministic: true}.Marshal(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	if bytesOf(ra, rb) != bytesOf(rb, ra) {
+		t.Fatal("reordering the roots changed the descriptor set's bytes")
+	}
+}
+
+// An input contributes the files it names and not the tree around them, which is
+// what lets a module entry adopt two packages out of a module that holds eight.
+func TestUnionCompilesOnlyTheFilesAnInputNames(t *testing.T) {
+	root := tree(t, map[string]string{
+		"acme/v1/calc.proto": calc,
+		"spare/v1/spare.proto": `syntax = "proto3";
+package spare.v1;
+option go_package = "example.com/spare/gen/spare/v1;sparev1";
+message Unused { string id = 1; }
+`,
+	})
+	set, _, err := compile.Union(t.Context(), []compile.Root{
+		{Path: root, Files: []string{"acme/v1/calc.proto"}},
+	})
+	if err != nil {
+		t.Fatalf("Union: %v", err)
+	}
+	for _, f := range set.GetFile() {
+		if f.GetName() == "spare/v1/spare.proto" {
+			t.Fatal("a file the input did not name was compiled anyway")
+		}
 	}
 }

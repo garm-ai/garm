@@ -2,8 +2,8 @@
 #
 # What this repository guarantees is enforced by tests and by the generator,
 # not by convention: a schema that declares governance the build cannot honour
-# must not compile, and nothing here may depend on the daemon. Both are checks,
-# not comments.
+# must not compile, nothing here may depend on the daemon, and the contract is
+# a dependency rather than a copy. All three are checks, not comments.
 name: ci
 
 on:
@@ -24,6 +24,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Two checks read the contract's SOURCE rather than the module this
+      # repository compiles against: the platform's own protos against this
+      # linter, and connect-go's real output against ConnectNames. A linked
+      # descriptor carries no proto text and this module imports no generated
+      # connect package, so the dependency cannot answer either. They skip when
+      # there is no checkout and FAIL when CI is set, which is why this step
+      # exists and why GARM_CONTRACTS_DIR is set below.
+      - uses: actions/checkout@v5
+        with:
+          repository: garm-ai/contracts
+          path: .contracts
+
+      - run: echo "GARM_CONTRACTS_DIR=$GITHUB_WORKSPACE/.contracts" >> "$GITHUB_ENV"
+
       # mise provides both the toolchain and the tasks, so CI runs the same
       # commands a contributor does. A CI job that reimplements the build is
       # one that drifts from it.
@@ -32,6 +46,7 @@ jobs:
           install: true
           cache: true
 
+      - run: mise run fmt-check
       - run: mise run lint
       - run: mise run build
 
@@ -39,13 +54,18 @@ jobs:
       # design, and a data race there is a governance bug rather than a flake.
       - run: mise run test
 
-      # Fails if the generated tree is stale. The alternative is discovering
-      # it in a consumer's build.
-      - run: mise run gen-check
+      # The invariant the contract's extraction created: a released tag, never
+      # a replace, a vendor directory or a copy of the tree.
+      - run: mise run contract-is-a-dependency
+      - run: mise run tidy-check
 
   # The property this repository exists to hold: an engineer authoring a tool
   # schema must never need the daemon. Asserted, because a single careless
   # import would end it silently.
+  #
+  # The contract module is checked the other way round: it must be REACHED, and
+  # must not reach back. `go list -deps` walks the real graph, so a cycle
+  # through github.com/garm-ai/garm would show up here.
   no-daemon-dependency:
     runs-on: ubuntu-latest
     steps:
@@ -61,3 +81,22 @@ jobs:
             exit 1
           fi
           echo "clean: nothing here depends on garmd"
+      - name: the contract is reached and does not reach back
+        run: |
+          if ! go list -deps ./... | grep -q '^github.com/garm-ai/contracts'; then
+            echo "::error::nothing here imports the contract; it should be a dependency" >&2
+            exit 1
+          fi
+          # `go mod graph` rather than `go list -deps` over the contract's own
+          # packages. That would be the more direct question, and it cannot be
+          # asked: this module imports some of the contract's packages and not
+          # others, so go list fails on the ones whose dependencies are absent
+          # from this go.sum and the check becomes vacuous — it passes because
+          # it listed nothing, not because there was no cycle. The module graph
+          # is always complete.
+          if go mod graph \
+               | grep -Eq '^github\.com/garm-ai/contracts@[^ ]+ github\.com/garm-ai/garm@'; then
+            echo "::error::the contract module requires this one; that is a cycle" >&2
+            exit 1
+          fi
+          echo "clean: the contract is a dependency, with no cycle"

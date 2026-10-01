@@ -16,6 +16,15 @@ cases/
   L14-L21-destructive-unsupervised/ a destructive tool must declare approval and audit
   L3-name-reused-across-packages/   short names are unique across the WHOLE catalogue
   L30-flattened-name-too-long/      a name a client sees must fit in 63 characters
+  A1-third-method/                  an agent service is Invoke and GetRun and nothing else
+  A2-prompt-hash-mismatch/          a prompt is pinned by hash; the file must match
+  A3-tool-above-clearance/          an agent may not list a tool it could never call
+  A4-guard-on-unknown-field/        a guard is CEL over the tool's own request message
+  A5-labels-differ/                 whoever can start a run can read it, and nobody else
+  C1-task-card-off-material/        a task card references material fields, and nothing else
+  O1-service-without-owner/         a tool service names who is answerable for it (a warning in v0.15.0)
+  L34-runner-field-without-a-rule/  a SOURCE_RUNNER field must be one the runner can fill: idempotency_key
+  valid-payment-card/               what an acceptable owner and task card look like — expected.txt is empty
 ```
 
 ## Running
@@ -51,7 +60,16 @@ about identity; it is about a flat namespace that one consumer insists on.
 
 ## Coverage
 
-Seven cases against 27 rules. This is a reference, not an exhaustive matrix:
+Sixteen cases against 39 rules. The rule count is the number of distinct rule
+IDs any `Diag{Rule: "..."}` in `internal/compiler` can produce, not a manually
+incremented tally — recount it after adding a rule with:
+
+```console
+$ grep -ohE 'Rule: *"[A-Z][0-9]+"' $(ls internal/compiler/*.go | grep -v _test.go) \
+    | sed -E 's/Rule: *"([A-Z0-9]+)"/\1/' | sort -u | wc -l
+```
+
+This is a reference, not an exhaustive matrix:
 the rules themselves are covered by unit tests in `internal/compiler`, which is
 the right place for a rule's edges. What belongs here is the handful a schema
 author actually trips over, written so the message and the `.proto` that
@@ -71,3 +89,32 @@ The caller cannot tell *you may not see this* from *it is 0*. That is a
 redaction which leaks by ambiguity, and it is exactly the kind of thing that
 looks fine in review and is wrong in production — which is why it is a build
 error rather than a warning.
+
+## Why the A cases are here at all
+
+A1–A5 govern the agent manifest, which is read by a runner in a different
+repository. Nothing in `garm` executes an agent, so these five rules are the
+only place a bad manifest is refused with its author present — everywhere else
+it is a named agent that stops loading, at 3am, in an error log.
+
+## Why L34 is here
+
+`source: SOURCE_RUNNER` on a field policy says the caller may not set the
+field and the model never sees it: the runner that dispatches the call fills
+it. The only fill rule a runner knows in this release is `idempotency_key` =
+`<run_id>-<dispatch seq>`, so a runner field with any other name is a request
+nobody can send — and the place that would otherwise discover it is a run
+failing at dispatch with the author absent. `valid-payment-card` carries the
+accepted shape: a top-level string named `idempotency_key` on the request.
+
+## Why C1 and O1 are here
+
+A card template and an owner are read by agentd from the catalogue a task or
+run pinned, and rendered to a person deciding something. C1 refuses a
+`{field}` the card could never show — the task stores a tool's material
+fields and nothing else of the request — and O1 asks that the card can say
+who is answerable. O1 is a **warning** in v0.15.0 because no catalogue built
+before it carries an owner, and a gate nobody can pass on the day it appears
+is a gate people disable; it becomes an error once the catalogues this
+release ships with have caught up. Every case in this directory carries an
+owner so that each expectation stays about its own rule.
