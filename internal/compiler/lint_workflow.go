@@ -137,7 +137,14 @@ func lintWorkflowGraph(a Agent) []Diag {
 // This entry point is the whole-catalogue one. See lintWorkflowExpressionsWith
 // for what a one-directory run can and cannot answer.
 func lintWorkflowExpressions(a Agent, tools map[string]Tool) []Diag {
-	return lintWorkflowExpressionsWith(a, tools, Options{})
+	// nil: no sibling agent's GetRun output to substitute for an agent step's
+	// `response`. Every existing caller of this entry point lints a single
+	// agent whose steps call plain tools, never another agent's Invoke, so
+	// the substitution map below would be consulted and found empty either
+	// way. lintAgents (the production path) builds the real map once, over
+	// every agent in the linted set, and calls lintWorkflowExpressionsWith
+	// directly — see agentStepReplies.
+	return lintWorkflowExpressionsWith(a, tools, nil, Options{})
 }
 
 // lintWorkflowExpressionsWith is A7 with the caller's context.
@@ -162,7 +169,15 @@ func lintWorkflowExpressions(a Agent, tools map[string]Tool) []Diag {
 // That last line is the point of the split. The load-bearing half of A7 runs
 // everywhere, including on every `buf generate`; only the type-fitting of a
 // `with` key against a request it cannot see waits for `garm lint`.
-func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) []Diag {
+//
+// agentReplies is what a step whose tool is an AGENT's Invoke actually sees
+// at `response`. See the note above the `response` substitution below, and
+// agentStepReplies for how the map is built. nil (every PartialSet caller,
+// and every existing caller of lintWorkflowExpressions) means no substitution
+// is available and `response` stays each tool's own declared output — the
+// behaviour this function always had.
+func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool,
+	agentReplies map[string]protoreflect.MessageDescriptor, opts Options) []Diag {
 	p := a.Policy
 	if p.GetMode() != agentv1.Mode_MODE_WORKFLOW {
 		return nil
@@ -285,6 +300,33 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) [
 		}
 
 		req, resp := tool.Method.Input(), tool.Method.Output()
+		// A step whose tool is an AGENT's Invoke answers garm.agent.v1.RunRef
+		// at the call itself, but that is a reference, not the answer: the
+		// runner awaits the run it names and the step's `set` actually sees
+		// that child's GetRun output, garm.agent.v1.RunStatus — design §6.1
+		// frames 10e-10f, and the runner's own internal/run.responseType.
+		// Checking `set` against RunRef's two fields (just run_id) would
+		// refuse `response.state`, `response.error` and every other field
+		// RunStatus adds, which is exactly the lint/runtime disagreement this
+		// substitution exists to close. See agentStepReplies for how the map
+		// is built. An agent with no GetRun at all is a legitimate
+		// declaration (design §2.2: at most one) that agentStepReplies
+		// leaves out of the map on purpose, so `response` falls back to
+		// RunRef for it — unchanged from today, and no worse than today: the
+		// runner refuses such a step at run time regardless of what `set`
+		// reads (internal/run.responseType), so this is not a new gap.
+		//
+		// A PLAIN tool that happens to answer RunRef (nothing requires that
+		// it not) is deliberately NOT substituted: agentReplies only has an
+		// entry when s.GetTool() IS some agent's Invoke, so such a tool's
+		// `response` stays RunRef, its own declared output — the same
+		// distinction agentd's verifyGraph draws between an agentStep and an
+		// unclaimedRunRef.
+		if resp.FullName() == runRefName {
+			if status, ok := agentReplies[s.GetTool()]; ok {
+				resp = status
+			}
+		}
 		for _, key := range sortedKeys(s.GetWith()) {
 			expr := s.GetWith()[key]
 			fd, err := resolveFieldPath(req, key)
@@ -366,6 +408,47 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool, opts Options) [
 			bad("%s: `when` is %s, and an edge predicate must be bool: the runner "+
 				"takes the edge when it is true and has nothing to compare when it "+
 				"is anything else", label, ast.OutputType())
+		}
+	}
+	return out
+}
+
+// agentStepReplies maps an agent's Invoke tool FQN to that same agent's
+// GetRun OUTPUT descriptor (garm.agent.v1.RunStatus) — what a step calling
+// that FQN actually sees at `response`, per the note in
+// lintWorkflowExpressionsWith above. Built once over the whole linted set and
+// shared across every agent's A7 run, the same way toolIndex is.
+//
+// This is garm lint's version of agentd's catalogue.agentRepliesFrom
+// (internal/catalogue/generation.go), and reads the same fact off the same
+// two methods, but it does NOT reproduce that function's fixed point.
+// agentd's build() iterates verifyGraph to a fixed point because it resolves
+// a GENERATION: an agent can be REFUSED there (a bad guard, a bad prompt, a
+// bad graph) and carry forward an older definition instead, which changes
+// what agentRepliesFrom should hand a SIBLING step that invokes it on the
+// next round — admission is the thing that can still change.
+//
+// garm lint has no admission step to iterate on. It sees a composed set of
+// proto packages and answers one question about each agent in it: does its
+// own declaration lint clean. There is no "refused, carry forward the
+// previous version" here and no notion of a tentatively-live agent a sibling
+// might need to see differently next round — every agent in `agents` is
+// simply, structurally, either present in this set with an Invoke and a
+// GetRun or it is not, and that fact does not change while this function
+// runs. So one pass over `agents`, taken as given, is the whole of it; a
+// fixed point here would be solving a problem — admission changing between
+// rounds — that does not exist on this side of the fence.
+func agentStepReplies(agents []Agent, tools map[string]Tool) map[string]protoreflect.MessageDescriptor {
+	byInvoke := make(map[protoreflect.MethodDescriptor]protoreflect.MessageDescriptor, len(agents))
+	for _, ag := range agents {
+		if ag.Invoke != nil && ag.GetRun != nil {
+			byInvoke[ag.Invoke] = ag.GetRun.Output()
+		}
+	}
+	out := map[string]protoreflect.MessageDescriptor{}
+	for fqn, t := range tools {
+		if status, ok := byInvoke[t.Method]; ok {
+			out[fqn] = status
 		}
 	}
 	return out

@@ -353,7 +353,7 @@ func TestA7WarnsOncePerAgentWhenToolsAreOutsideThisDirectory(t *testing.T) {
 		edges: [{ from: "screen" to: "assess" }, { from: "assess" to: "pay" }]`)
 	// An empty index is exactly what buf hands the plugin for the agent's own
 	// directory: every tool lives in s/v1, which is not in this request.
-	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, Options{PartialSet: true})
+	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, nil, Options{PartialSet: true})
 	if len(diags) != 1 {
 		t.Fatalf("want exactly one diagnostic for three absent tools, got %d: %v",
 			len(diags), diags)
@@ -418,7 +418,7 @@ func TestA7StillRefusesAnUnwrittenReadUnderPartialSet(t *testing.T) {
 		  { from: "screen" to: "pay" },
 		  { from: "assess" to: "pay" }
 		]`)
-	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, Options{PartialSet: true})
+	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, nil, Options{PartialSet: true})
 	var refused bool
 	for _, d := range diags {
 		if d.Rule == "A7" && !d.Warn && strings.Contains(d.Msg, "state.note") {
@@ -658,7 +658,7 @@ func TestA7StillRefusesAnUncompilableWithExpressionUnderPartialSet(t *testing.T)
 		initial: [{ key: "memo" value: "input.memo" }]
 		steps: [{ id: "pay" tool: "s.v1.pay" with: [{key:"memo" value:"state.nope"}] }]
 		edges: []`)
-	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, Options{PartialSet: true})
+	diags := lintWorkflowExpressionsWith(a, map[string]Tool{}, nil, Options{PartialSet: true})
 	var refused bool
 	for _, d := range diags {
 		if d.Rule == "A7" && !d.Warn && strings.Contains(d.Msg, "does not compile") &&

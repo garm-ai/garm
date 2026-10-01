@@ -35,6 +35,13 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		return nil
 	}
 	tools := toolIndex(fds)
+	// agentReplies is what an agent step's `response` resolves to when the
+	// step's tool is some OTHER agent's Invoke — see agentStepReplies and the
+	// substitution in lintWorkflowExpressionsWith. Built once, over every
+	// agent in the linted set, and shared across every agent's own A7 run,
+	// the same way tools is: it is a fact about the composed set, not about
+	// any one agent being checked against it.
+	agentReplies := agentStepReplies(agents, tools)
 	var out []Diag
 	// One CEL environment cache per lint run: several agents may guard the
 	// same tool, and building an environment means walking a file's whole
@@ -51,7 +58,7 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		// write-dominator rule, `initial`, `set` keys, edge predicates — still
 		// errors. See lintWorkflowExpressionsWith for why the split is there
 		// rather than at this call site.
-		out = append(out, lintWorkflowExpressionsWith(a, tools, opts)...)
+		out = append(out, lintWorkflowExpressionsWith(a, tools, agentReplies, opts)...)
 		// A11 reads the same tool index A7 does, to compare a `set` source's
 		// field policy against the state field it lands on. Unlike A7 it
 		// takes no opts: a step whose tool is not in `tools` (PartialSet) is
