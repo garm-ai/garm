@@ -35,10 +35,15 @@ service S {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	manifestPath := filepath.Join(dir, "catalogue.yaml")
+	if err := os.WriteFile(manifestPath,
+		[]byte("schema: v1\nname: fixture\ninclude:\n  - path: .\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cmd := newCatalogueBuildCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--proto", dir, "-o", out})
+	cmd.SetArgs([]string{"-f", manifestPath, "-o", out})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("building the fixture catalogue: %v", err)
 	}

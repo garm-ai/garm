@@ -274,7 +274,7 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 		if err := ValidatePromptPath(p.GetPath()); err != nil {
 			out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
 				"prompts[%q].path %q is not usable: %v. Paths are relative to the "+
-					"prompts root, which is the directory containing the proto tree",
+					"prompts root, which the manifest's `prompts:` names",
 				k, p.GetPath(), err)})
 			continue
 		}
@@ -286,8 +286,8 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 		if opts.PromptsRoot == "" {
 			out = append(out, Diag{Rule: "A2", Path: svc, Warn: true, Msg: fmt.Sprintf(
 				"prompts[%q] is not checked here: this run has no prompts root. "+
-					"`garm lint` and `garm catalogue build` resolve one from --proto "+
-					"and do check it", k)})
+					"`garm lint` and `garm catalogue build` resolve one from the "+
+					"manifest and do check it", k)})
 			continue
 		}
 		// The lexical check above cannot see a symlink: a declared path can
@@ -300,7 +300,7 @@ func lintAgentPrompts(a Agent, opts Options) []Diag {
 			if errors.Is(err, ErrPromptEscapesRoot) {
 				out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(
 					"prompts[%q].path %q is not usable: %v. Paths are relative to the "+
-						"prompts root, which is the directory containing the proto tree",
+						"prompts root, which the manifest's `prompts:` names",
 					k, p.GetPath(), err)})
 			} else {
 				out = append(out, Diag{Rule: "A2", Path: svc, Msg: fmt.Sprintf(

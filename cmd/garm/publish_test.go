@@ -214,7 +214,7 @@ service Escalation {
 	catalogue = filepath.Join(t.TempDir(), "catalogue.binpb")
 	root := newRoot()
 	root.SetArgs([]string{"catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"), "-o", catalogue})
+		"-f", filepath.Join(dir, "catalogue.yaml"), "-o", catalogue})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err != nil {

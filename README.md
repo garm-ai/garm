@@ -215,9 +215,9 @@ Build time is the only place that is cheap to catch.
 
 Whether the package is present is a question about the **assembled** catalogue,
 not about one declaration, which is why `garm lint` now takes the same inputs
-`catalogue build` does — a manifest found by convention, `-f` to name one
-elsewhere, and `--proto` as the deprecated single-directory shorthand. The same
-is true of A3's agent allowlist, A9's audience, the half of A7 that resolves a
+`catalogue build` does — a manifest found by convention, or `-f` to name one
+elsewhere. The same is true of A3's agent allowlist, A9's audience, the half
+of A7 that resolves a
 workflow step's `with` keys against the tool's request message, and A11's
 comparison of a `set`'s state field against the response field it reads: a
 linter that saw only the deployment's own directory would pass a tree the
@@ -236,19 +236,9 @@ error everywhere, the plugin included.
 | `--source` | Free-form provenance: a repository and commit, a pipeline id. Overrides the manifest's `source:` |
 | `--prompts-root` | Where an agent's `prompts.*.path` resolves against. Default: the manifest's `prompts:` |
 | `--stamp-time` | Record the build time. Breaks byte-reproducibility, and the help says so |
-| `--proto` | **Deprecated.** Build from one directory, as a manifest with a single `path:` entry. Refused when `catalogue.yaml` is already present |
 
-`--proto` still works on a tree with **no** `catalogue.yaml` and produces
-byte-identical artifacts to the one-entry manifest that replaces it, because it
-*is* that manifest: it is turned into one before anything else happens, so
-there is one composition path and the deprecated flag cannot drift away from
-the supported input. Nothing that builds today stops building.
-
-On a tree that **already has** a `catalogue.yaml`, `--proto` is refused: the
-same error as passing `--manifest` and `--proto` together, since the manifest
-has already said what composes into the catalogue and `--proto` would judge
-one directory of it as the whole. Pass `--manifest`, or drop `--proto` and let
-the manifest be found.
+A tree with no `catalogue.yaml` and no `--manifest` is refused, naming the
+directory and saying to run `garm catalogue init`.
 
 The assembly itself is `internal/catalogue`, the manifest is
 `internal/manifest`, and the command is a thin front on both:

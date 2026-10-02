@@ -98,7 +98,7 @@ func BenchmarkCatalogueBuild(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				root := newRoot()
 				root.SetArgs([]string{"catalogue", "build",
-					"--proto", filepath.Join(dir, "proto"), "-o", out})
+					"-f", filepath.Join(dir, "catalogue.yaml"), "-o", out})
 				root.SetOut(&bytes.Buffer{})
 				root.SetErr(&bytes.Buffer{})
 				if err := root.Execute(); err != nil {
@@ -123,7 +123,7 @@ func BenchmarkCatalogueLoad(b *testing.B) {
 			out := filepath.Join(b.TempDir(), "c.binpb")
 			root := newRoot()
 			root.SetArgs([]string{"catalogue", "build",
-				"--proto", filepath.Join(dir, "proto"), "-o", out})
+				"-f", filepath.Join(dir, "catalogue.yaml"), "-o", out})
 			root.SetOut(&bytes.Buffer{})
 			root.SetErr(&bytes.Buffer{})
 			if err := root.Execute(); err != nil {

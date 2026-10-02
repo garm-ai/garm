@@ -125,73 +125,18 @@ func TestLintTakesAManifestByFlag(t *testing.T) {
 	}
 }
 
-// --proto and -f name two different inputs, and picking one silently would
-// check something other than what was asked about.
-func TestLintRefusesAManifestAndAProtoDirectoryTogether(t *testing.T) {
-	dir := fixture(t)
-	writeManifest(t, dir, "schema: v1\nname: acme\ninclude:\n  - path: proto\n")
-	_, _, err := lintIn(t, dir, "-f", manifest.Filename, "--proto", "proto")
-	if err == nil {
-		t.Fatal("both input flags were accepted")
-	}
-	if !strings.Contains(err.Error(), "two different inputs") {
-		t.Fatalf("the refusal does not say why: %v", err)
-	}
-}
-
-// A tree with no manifest still lints from proto/, and --proto still names one
-// directory. Every runbook and pre-commit hook in the estate passes it.
-func TestLintFallsBackToTheProtoDirectory(t *testing.T) {
-	dir := fixture(t)
-	if err := os.Remove(filepath.Join(dir, manifest.Filename)); err != nil {
-		t.Fatal(err)
-	}
-	stdout, errOut, err := lintIn(t, dir)
-	if err != nil {
-		t.Fatalf("lint on a tree with no manifest: %v\n%s", err, errOut)
-	}
-	if !strings.Contains(stdout, "ok") {
-		t.Errorf("stdout = %q", stdout)
-	}
-}
-
-// --proto in a tree that already has a catalogue.yaml is refused, naming both
-// inputs — the lint-side half of the build-side refusal.
-func TestLintRefusesProtoWhenAManifestIsPresent(t *testing.T) {
-	dir := fixture(t) // `garm init` already wrote catalogue.yaml here.
-	_, _, err := lintIn(t, dir, "--proto", "proto")
-	if err == nil {
-		t.Fatal("--proto was accepted on a tree that already has a manifest")
-	}
-	if !strings.Contains(err.Error(), "two different inputs") {
-		t.Fatalf("the refusal does not say why: %v", err)
-	}
-	for _, want := range []string{"proto", manifest.Filename} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %q: %v", want, err)
-		}
-	}
-}
-
-// The bug this fix closes, reproduced end to end.
-//
 // A tree composed from two inputs — the deployment's own directory plus one
 // it adopts from elsewhere (a module in the real bank; a second `path:` entry
 // here, which exercises the identical composition code and needs no module
 // cache) — passes lint through its manifest: the adopted tool is in the
-// composed set and the agent's allowlist names it validly. `garm lint
-// --proto proto` used to turn the flag into a synthetic one-entry manifest of
-// the deployment's OWN directory alone and run the full rule set over it, so
-// A3 refused the allowlist for naming a tool that directory cannot see — the
-// exact failure `garm-ai/examples`' research assistant hit on
-// `web.v1.fetch_page`. The fix refuses `--proto` outright on a tree that has
-// a manifest, so that false A3 can no longer fire at all: this test asserts
-// the refusal replaces it, not merely that lint now fails for some reason.
-func TestLintProtoNoLongerFalselyFailsAComposedTree(t *testing.T) {
+// composed set and the agent's allowlist names it validly. A single directory
+// cannot see it, which is the exact shape `garm-ai/examples`' research
+// assistant hit on `web.v1.fetch_page` before the bank had a manifest.
+func TestLintPassesAnAgentThatNamesAToolFromAnotherInput(t *testing.T) {
 	dir := fixture(t) // proto/acme/v1 with acme.v1.add; catalogue.yaml: path: proto.
 
 	// The adopted tool: a second service, in a directory of its own — standing
-	// in for a module's proto the way TestAManifestWinsOverTheFallback does.
+	// in for a module's proto the way TestTheManifestsOwnEntriesCompose does.
 	other := filepath.Join(dir, "other", "acme", "v2")
 	if err := os.MkdirAll(other, 0o755); err != nil {
 		t.Fatal(err)
@@ -239,24 +184,11 @@ func TestLintProtoNoLongerFalselyFailsAComposedTree(t *testing.T) {
 	if !strings.Contains(stdout, "ok") {
 		t.Errorf("stdout = %q, want a line saying the tree is clean", stdout)
 	}
-
-	// Through --proto, composing only proto/: refused outright, naming both
-	// inputs — never reaching A3, and never the false failure it used to be.
-	_, errOut, err = lintIn(t, dir, "--proto", "proto")
-	if err == nil {
-		t.Fatal("--proto was accepted on a tree that already has a manifest")
-	}
-	if !strings.Contains(err.Error(), "two different inputs") {
-		t.Fatalf("the refusal does not say why: %v", err)
-	}
-	if strings.Contains(errOut, "A3") || strings.Contains(err.Error(), "A3") {
-		t.Fatalf("the old false A3 failure fired instead of the refusal:\nerr=%v\nstderr=%s", err, errOut)
-	}
 }
 
-// A manifest wins over the fallback, or a migrated tree would silently keep
-// linting the pre-migration way.
-func TestLintPrefersTheManifestOverTheFallback(t *testing.T) {
+// The manifest's own `include:` entries decide what lint checks, not whatever
+// happens to sit in a conventionally named directory beside it.
+func TestLintChecksTheManifestsOwnEntries(t *testing.T) {
 	dir := fixture(t)
 	other := filepath.Join(dir, "other", "acme", "v3")
 	if err := os.MkdirAll(other, 0o755); err != nil {

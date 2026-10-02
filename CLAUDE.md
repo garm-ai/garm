@@ -92,9 +92,9 @@ Two consequences to keep straight:
   deployment never said yes to the word; it said yes to the tool.
 
   Three things to keep straight. `internal/compiler.Options.Taxonomy` nil means
-  scrape, and that is what keeps every unmigrated tree — and `--proto`, which
-  synthesises a manifest in memory — building exactly as before. **L28 and L29 go
-  quiet when it is non-nil**, and they are moot rather than skipped: they judge
+  scrape, and that is what keeps every tree with no `taxonomy:` block building
+  exactly as before. **L28 and L29 go quiet when it is non-nil**, and they are
+  moot rather than skipped: they judge
   proto declarations that nothing then reads. And **L7's reference half and L20
   became whole-set rules**, warning under `PartialSet`, because the plugin sees one
   directory and no manifest; that is what let a deployment delete its copy of an

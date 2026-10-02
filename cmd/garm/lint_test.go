@@ -14,7 +14,7 @@ func lint(t *testing.T, dir string) (error, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
 	root := newRoot()
-	root.SetArgs([]string{"lint", "--proto", filepath.Join(dir, "proto")})
+	root.SetArgs([]string{"lint", "-f", filepath.Join(dir, "catalogue.yaml")})
 	root.SetOut(&out)
 	root.SetErr(&errOut)
 	return root.Execute(), out.String(), errOut.String()

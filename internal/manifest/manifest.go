@@ -233,8 +233,8 @@ func (e Entry) String() string {
 // Find reports the manifest in dir, if there is one.
 //
 // A bool and not an error, because "there is no manifest here" is an ordinary
-// answer: it is how `catalogue build` knows to fall back to the deprecated
-// --proto and still build a tree that has not migrated.
+// answer: it is how `findManifest` in cmd/garm decides between loading one and
+// refusing with a message naming `garm catalogue init`.
 func Find(dir string) (string, bool) {
 	p := filepath.Join(dir, Filename)
 	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {

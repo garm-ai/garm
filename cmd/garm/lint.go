@@ -11,7 +11,7 @@ import (
 )
 
 func newLintCmd() *cobra.Command {
-	var manifestPath, protoDir, promptsDir string
+	var manifestPath, promptsDir string
 	cmd := &cobra.Command{
 		Use:   "lint",
 		Short: "Check tool declarations without generating anything",
@@ -32,11 +32,7 @@ func newLintCmd() *cobra.Command {
 			"toolchain, and a linter people cannot run easily is one they skip.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			f := inputFlags{
-				manifest: manifestPath,
-				protoDir: protoDir,
-				protoSet: cmd.Flags().Changed("proto"),
-			}
+			f := inputFlags{manifest: manifestPath}
 			m, dir, _, err := findManifest(f)
 			if err != nil {
 				return err
@@ -52,7 +48,7 @@ func newLintCmd() *cobra.Command {
 			// function, so there is one implementation of which diagnostics
 			// are refusals. This command only reports: there is no artifact
 			// here to gate.
-			diags := catalogue.Check(fds, promptsRoot(promptsDir, f, m, dir), taxonomyOf(m))
+			diags := catalogue.Check(fds, promptsRoot(promptsDir, m, dir), taxonomyOf(m))
 			for _, d := range diags {
 				fmt.Fprintln(cmd.ErrOrStderr(), d.String())
 			}
@@ -65,14 +61,9 @@ func newLintCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "f", "",
 		"The manifest to compose from (default: "+manifest.Filename+" in the working directory)")
-	cmd.Flags().StringVar(&protoDir, "proto", "proto",
-		"DEPRECATED: lint this one directory instead of a manifest, as a manifest with a "+
-			"single `path:` entry. Used only when there is no "+manifest.Filename+"; refused "+
-			"when there is one, since a rule about the whole catalogue can only be checked "+
-			"against the whole catalogue")
 	cmd.Flags().StringVar(&promptsDir, "prompts-root", "",
 		"Directory an agent's prompts.*.path resolves against (default: the manifest's "+
-			"`prompts:`, or the parent of --proto)")
+			"`prompts:`, or the manifest's own directory)")
 	return cmd
 }
 

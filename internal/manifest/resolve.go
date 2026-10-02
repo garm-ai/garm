@@ -210,11 +210,11 @@ func inAModule(dir string) bool {
 }
 
 func resolveLocal(dir string, e Entry, source string) (*Input, error) {
-	// An absolute path cannot come from a manifest — validate refuses one,
-	// because an input outside the tree has no version and belongs behind a
-	// `module:` entry. It can only arrive from the deprecated --proto, which
-	// several pipelines pass an absolute directory to, and joining it to dir
-	// would quietly turn "/tmp/x/proto" into "tmp/x/proto".
+	// validate refuses an absolute e.Path — an input outside the tree has no
+	// version and belongs behind a `module:` entry — so this never sees one in
+	// practice. The check stays defensive rather than assumed: joining an
+	// absolute path to dir would quietly turn "/tmp/x/proto" into
+	// "tmp/x/proto", which is a worse failure than none.
 	root := e.Path
 	if !filepath.IsAbs(root) {
 		root = filepath.Join(dir, e.Path)

@@ -96,9 +96,8 @@ type Request struct {
 	Taxonomy *compiler.Taxonomy
 
 	// Origin names where these declarations came from, for the message a
-	// refusal has to print: the manifest that composed them, or the --proto
-	// directory for a tree that has not migrated. Nothing here opens it — this
-	// package reads no files.
+	// refusal has to print: the manifest that composed them. Nothing here
+	// opens it — this package reads no files.
 	Origin string
 
 	// PromptsRoot is the directory an agent's prompts.*.path resolves against,
@@ -122,9 +121,7 @@ type Request struct {
 	// Empty is permitted and means "this builder did not say", which is what
 	// every catalogue written before the field says. It never means "composed
 	// from nothing": that is not a state, because a build with no declarations
-	// has nothing to compile and is refused above. `--proto` therefore stamps
-	// ONE local input rather than none — it is the single-input case of a
-	// manifest, not the absence of one.
+	// has nothing to compile and is refused above.
 	Inputs []*cataloguev1.Input
 
 	// Producer and Compiler are stamped into the artifact's provenance. The

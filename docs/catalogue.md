@@ -143,36 +143,17 @@ version** — so an adopted package needs no copy in `proto/` and the artifact
 records where each package came from. The manifest and its rules are in
 [the README](../README.md#the-catalogue).
 
-`--proto` still builds from one directory and is **deprecated**: it is the
-single-input case, turned into a manifest with one `path:` entry before anything
-else happens, so it produces the same bytes as the manifest that replaces it.
-This only works on a tree with **no** `catalogue.yaml` — the example below is a
-different, pre-manifest tree, not the one above. On a tree that already has a
-`catalogue.yaml`, `--proto` is refused, the same as passing `--manifest` and
-`--proto` together: the manifest has already said what composes into the
-catalogue, and `--proto` would judge one directory of it as the whole.
-
-```console
-$ garm catalogue build --proto proto -o catalogue.binpb --source "acme/tools@$(git rev-parse --short HEAD)"
-wrote catalogue.binpb
-  3 tool(s), 5 file(s), schema v1
-  digest sha256:65a16d19cec0fa3c…
-    acme.accounts.v1.get_balance
-    acme.accounts.v1.list_accounts
-    acme.calc.v1.add
-```
-
 **It lints first and refuses on any error.** A catalogue that does not lint
 cannot be built. The alternative is an artifact that fails later at the
 daemon's mount check — where the author is not present, and the failure is an
 outage rather than a build error.
 
-### Prompts are resolved beside the proto tree
+### Prompts are resolved beside the manifest
 
-An agent's `prompts.*.path` is relative to the manifest's `prompts:` directory,
-or — for a `--proto` build — to the directory that **contains** the proto tree,
-the parent of `--proto`, which for the default `--proto proto` is the directory
-you are standing in. A repository laid out as
+An agent's `prompts.*.path` is relative to the manifest's `prompts:`
+directory, or — when that key is absent — to the manifest's own directory,
+which for the default `catalogue.yaml` in the working directory is the
+directory you are standing in. A repository laid out as
 
 ```
 proto/bank/agents/v1/support_assistant.proto

@@ -83,48 +83,9 @@ include:
 	}
 }
 
-// A tree with no manifest still builds from proto/, and identically.
-//
-// Every runbook and CI pipeline in the estate passes --proto today, and this is
-// a minor release. The deprecated flag is the single-input case of a manifest —
-// one `path:` entry — so it goes through the same composition and produces the
-// same bytes as the manifest that replaces it.
-func TestBuildFallsBackToTheProtoDirectory(t *testing.T) {
-	dir := fixture(t)
-	// `garm init` writes a manifest now, so the pre-manifest state has to be
-	// made rather than assumed: with the file in place this test would compare a
-	// manifest against a manifest and the fallback would go unexercised.
-	if err := os.Remove(filepath.Join(dir, manifest.Filename)); err != nil {
-		t.Fatal(err)
-	}
-	viaFallback := filepath.Join(t.TempDir(), "fallback.binpb")
-	if _, _, err := buildIn(t, dir, "-o", viaFallback); err != nil {
-		t.Fatalf("a tree with no manifest did not build: %v", err)
-	}
-
-	viaManifest := filepath.Join(t.TempDir(), "manifest.binpb")
-	writeManifest(t, dir, "schema: v1\nname: proto\ninclude:\n  - path: proto\n")
-	if _, _, err := buildIn(t, dir, "-o", viaManifest); err != nil {
-		t.Fatalf("the equivalent manifest did not build: %v", err)
-	}
-
-	a, b := read(t, viaFallback), read(t, viaManifest)
-	ab, err := proto.MarshalOptions{Deterministic: true}.Marshal(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bb, err := proto.MarshalOptions{Deterministic: true}.Marshal(b)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(ab) != string(bb) {
-		t.Fatal("--proto and a one-entry manifest produced different artifacts")
-	}
-}
-
-// A manifest wins over the fallback whenever there is one, or a migrated tree
-// would silently keep building the pre-migration way.
-func TestAManifestWinsOverTheFallback(t *testing.T) {
+// The manifest's own `include:` entries are what compose, not whatever
+// happens to sit in a conventionally named directory beside it.
+func TestTheManifestsOwnEntriesCompose(t *testing.T) {
 	dir := fixture(t)
 	// A second tree the manifest names instead of proto/.
 	other := filepath.Join(dir, "other")
@@ -154,50 +115,16 @@ func TestAManifestWinsOverTheFallback(t *testing.T) {
 	}
 }
 
-// --proto in a tree that already has a catalogue.yaml is the same mistake as
-// --manifest and --proto together, made implicitly: the tree has said what
-// composes into its catalogue, and the flag asks for one directory of it to
-// be judged as the whole. Refuse, naming both inputs, rather than silently
-// building a subset and calling it the catalogue.
-func TestBuildRefusesProtoWhenAManifestIsPresent(t *testing.T) {
-	dir := fixture(t) // `garm init` already wrote catalogue.yaml here.
-	out := filepath.Join(t.TempDir(), "c.binpb")
-	_, _, err := buildIn(t, dir, "--proto", "proto", "-o", out)
-	if err == nil {
-		t.Fatal("--proto was accepted on a tree that already has a manifest")
-	}
-	if !strings.Contains(err.Error(), "two different inputs") {
-		t.Fatalf("the refusal does not say why: %v", err)
-	}
-	for _, want := range []string{"proto", manifest.Filename} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %q: %v", want, err)
-		}
-	}
-}
-
-// --proto and --manifest name two different inputs, and picking one silently
-// would build something other than what was asked for.
-func TestBuildRefusesAManifestAndAProtoDirectoryTogether(t *testing.T) {
-	dir := fixture(t)
-	writeManifest(t, dir, "schema: v1\nname: acme\ninclude:\n  - path: proto\n")
-	_, _, err := buildIn(t, dir, "-f", manifest.Filename, "--proto", "proto")
-	if err == nil {
-		t.Fatal("both input flags were accepted")
-	}
-	if !strings.Contains(err.Error(), "two different inputs") {
-		t.Fatalf("the refusal does not say why: %v", err)
-	}
-}
-
-// Neither a manifest nor a proto directory: say so, rather than reporting a
-// compiler error about a directory nobody asked for.
+// Neither a manifest named by flag nor one found by convention: say so,
+// rather than reporting a compiler error about a directory nobody asked for —
+// and name the directory it looked in and what to run.
 func TestBuildSaysSoWhenThereIsNoInputAtAll(t *testing.T) {
-	_, _, err := buildIn(t, t.TempDir(), "-o", filepath.Join(t.TempDir(), "c.binpb"))
+	dir := t.TempDir()
+	_, _, err := buildIn(t, dir, "-o", filepath.Join(t.TempDir(), "c.binpb"))
 	if err == nil {
 		t.Fatal("a directory with no input built a catalogue")
 	}
-	for _, want := range []string{manifest.Filename, "proto/"} {
+	for _, want := range []string{manifest.Filename, dir, "garm catalogue init"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not mention %q: %v", want, err)
 		}

@@ -99,9 +99,9 @@ func runCatalogueInit(cmd *cobra.Command, dir string, f initFlags) error {
 		Name:   f.name,
 		Source: f.source,
 		// The manifest's directory, which is where a deployment laid out as
-		// proto/ beside prompts/ keeps them — the same answer the historical
-		// default (the parent of --proto) gives. Written explicitly because a
-		// composed build has no --proto to derive it from.
+		// proto/ beside prompts/ keeps them — Manifest.Prompts's own
+		// documented default. Written explicitly rather than left for that
+		// default to supply, so the manifest states it.
 		Prompts: ".",
 	}
 	if req.Name == "" {

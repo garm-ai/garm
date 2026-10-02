@@ -66,9 +66,7 @@ rows of §6's table P1 cannot check:
   `init` already scrapes the tree for everything else it writes and this is the
   obvious next entry in its report; it is not built.
 
-  Two consequences worth knowing. **`--proto` can never declare a taxonomy**: the
-  flag synthesises a one-entry manifest in memory, so a tree using the deprecated
-  shorthand always gets the scrape. And **`garm.tool.v1.compartments` and
+  One consequence worth knowing: **`garm.tool.v1.compartments` and
   `tool_sets` are not deprecated in the contract** — the extensions still exist
   and `garm init` still vendors them, because a tool package genuinely does need
   to document the words it requires somewhere a reader can find them. What changed
@@ -99,30 +97,6 @@ rows of §6's table P1 cannot check:
   visible: `Provenance.compiler` and `producer` identify the binary, so a digest
   that does not reproduce is diagnosable, but the artifact does not state the
   disagreement.
-- **`--proto` is deprecated in its help text and warns nothing at run time**, on
-  `garm lint` as well as on `catalogue build`. A warning on stderr would change
-  the output of every pipeline that still passes it, which is all of them, so the
-  deprecation is documentation until the flag is removed.
-- **`--proto` is refused on a tree that already has a `catalogue.yaml`,
-  since v0.28.0.** It used to turn into a synthetic one-entry manifest and run
-  the FULL rule set over it, `PartialSet` unset — so on a tree that adopts a
-  tool from a module, the adopted tool is not in that one directory and A3
-  refused an agent's allowlist for naming a tool it could not see. That is
-  exactly what `garm-ai/examples`' bank hit on `web.v1.fetch_page`: the
-  manifest passed and `--proto` failed the same tree. A deprecated flag
-  producing a false failure is worse than one that is removed, so `--proto`
-  together with a `catalogue.yaml` beside it is now the same error as
-  `--manifest` and `--proto` together — two inputs named at once, naming both
-  and saying to pass `--manifest` or drop `--proto` and let the manifest be
-  found. `--proto` in a tree with **no** manifest is unaffected: it is still
-  the whole catalogue, exactly as before, which is what the unmigrated
-  pipelines in this estate rely on. `findManifest` in `cmd/garm/catalogue.go`
-  decides this for both `garm lint` and `garm catalogue build`, which share it.
-
-  What this is NOT: `PartialSet`. A3, A9 and P1 are not downgraded to warnings
-  when `--proto` appears — that would quietly stop checking them for every tree
-  that has not migrated, which is most of them, and a rule skipped wherever
-  nobody is looking is not a rule.
 - **A tree with no `go.mod` cannot pin anything, and only `catalogue init` says so
   kindly.** `Resolve` refuses a manifest with module entries when there is no
   go.mod in the manifest's directory or any directory above it — up, because a

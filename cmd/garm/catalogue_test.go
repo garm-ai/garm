@@ -65,7 +65,7 @@ func build(t *testing.T, dir, out string, args ...string) []byte {
 	t.Helper()
 	root := newRoot()
 	root.SetArgs(append([]string{"catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"), "-o", out}, args...))
+		"-f", filepath.Join(dir, "catalogue.yaml"), "-o", out}, args...))
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err != nil {
@@ -141,7 +141,7 @@ service Danger {
 
 	root := newRoot()
 	root.SetArgs([]string{"catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"), "-o", filepath.Join(t.TempDir(), "x.binpb")})
+		"-f", filepath.Join(dir, "catalogue.yaml"), "-o", filepath.Join(t.TempDir(), "x.binpb")})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 	if err := root.Execute(); err == nil {
@@ -343,7 +343,7 @@ func TestCatalogueBuildRefusesADriftedPrompt(t *testing.T) {
 
 	root := newRoot()
 	root.SetArgs([]string{"catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"),
+		"-f", filepath.Join(dir, "catalogue.yaml"),
 		"-o", filepath.Join(t.TempDir(), "catalogue.binpb")})
 	var errBuf bytes.Buffer
 	root.SetOut(&bytes.Buffer{})
@@ -356,15 +356,15 @@ func TestCatalogueBuildRefusesADriftedPrompt(t *testing.T) {
 	}
 }
 
-// And the default prompts root is the parent of --proto: the same tree with
-// the correct hash builds with no --prompts-root at all.
+// And the default prompts root is the manifest's own directory: the same tree
+// with the correct hash builds with no --prompts-root at all.
 func TestCatalogueBuildResolvesPromptsBesideTheProtoTree(t *testing.T) {
 	dir := fixture(t)
 	// (same tree as above, with sha256 d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a)
 	writeAgentFixture(t, dir, "d43a2fec89c3b32917f3550b916cc6751f6d326e25f9aa19089cf70dbfd2615a")
 	root := newRoot()
 	root.SetArgs([]string{"catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"),
+		"-f", filepath.Join(dir, "catalogue.yaml"),
 		"-o", filepath.Join(t.TempDir(), "catalogue.binpb")})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})

@@ -29,7 +29,7 @@ func newCatalogueCmd() *cobra.Command {
 }
 
 func newCatalogueBuildCmd() *cobra.Command {
-	var manifestPath, protoDir, promptsRoot, out, source string
+	var manifestPath, promptsRoot, out, source string
 	var stampTime bool
 	cmd := &cobra.Command{
 		Use:   "build",
@@ -57,11 +57,7 @@ func newCatalogueBuildCmd() *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runCatalogueBuild(cmd, buildFlags{
-				inputFlags: inputFlags{
-					manifest: manifestPath,
-					protoDir: protoDir,
-					protoSet: cmd.Flags().Changed("proto"),
-				},
+				inputFlags:  inputFlags{manifest: manifestPath},
 				promptsRoot: promptsRoot,
 				out:         out,
 				source:      source,
@@ -71,14 +67,9 @@ func newCatalogueBuildCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&manifestPath, "manifest", "f", "",
 		"The manifest to compose from (default: "+manifest.Filename+" in the working directory)")
-	cmd.Flags().StringVar(&protoDir, "proto", "proto",
-		"DEPRECATED: build from this one directory instead of a manifest, as a manifest with a "+
-			"single `path:` entry. Used only when there is no "+manifest.Filename+"; refused when "+
-			"there is one, since it already says what composes into the catalogue. Write a "+
-			"manifest instead: it is the input that can name a module")
 	cmd.Flags().StringVar(&promptsRoot, "prompts-root", "",
 		"Directory an agent's prompts.*.path resolves against (default: the manifest's `prompts:`, "+
-			"or the parent of --proto)")
+			"or the manifest's own directory)")
 	cmd.Flags().StringVarP(&out, "out", "o", "catalogue.binpb", "Where to write the artifact")
 	cmd.Flags().StringVar(&source, "source", "",
 		"Free-form provenance: a repository and commit, a pipeline id. Overrides the manifest's `source:`")
@@ -87,13 +78,13 @@ func newCatalogueBuildCmd() *cobra.Command {
 	return cmd
 }
 
-// inputFlags is how a command was told what to compose: the manifest, or the
-// deprecated single directory.
+// inputFlags is how a command was told what to compose: a named manifest, or
+// none, in which case findManifest looks for one by convention.
 //
-// Its own type because `catalogue build` and `lint` take the same three flags
-// and must resolve them the same way. They used not to — lint took one
-// directory and only the builder read a manifest — and the consequence was that
-// the rules needing the whole assembled set (A3's allowlist, and P1's required
+// Its own type because `catalogue build` and `lint` take the same flag and
+// must resolve it the same way. They used not to — lint took one directory
+// and only the builder read a manifest — and the consequence was that the
+// rules needing the whole assembled set (A3's allowlist, and P1's required
 // platform package) saw a manifest's inputs from the builder and never from the
 // linter. So `garm lint` over a composed tree checked the deployment's own
 // protos and not what it adopts, which makes the linter's promise — that it
@@ -101,12 +92,6 @@ func newCatalogueBuildCmd() *cobra.Command {
 // are hardest to diagnose later.
 type inputFlags struct {
 	manifest string
-	protoDir string
-	// protoSet records whether --proto was given, which is what distinguishes
-	// "this tree has not migrated" from "somebody asked for the old behaviour".
-	// A default value cannot answer that, and getting it wrong would mean a
-	// tree with a manifest silently built from proto/ instead.
-	protoSet bool
 }
 
 // buildFlags is what the user typed, gathered so that resolving it into inputs
@@ -147,7 +132,7 @@ func runCatalogueBuild(cmd *cobra.Command, f buildFlags) error {
 		Set:         set,
 		Descriptors: fds,
 		Origin:      origin,
-		PromptsRoot: promptsRoot(f.promptsRoot, f.inputFlags, m, dir),
+		PromptsRoot: promptsRoot(f.promptsRoot, m, dir),
 		Source:      source,
 		Inputs:      manifest.Provenance(inputs),
 		Taxonomy:    taxonomyOf(m),
@@ -220,92 +205,58 @@ func compose(ctx context.Context, dir string, m *manifest.Manifest, source strin
 	return set, fds, inputs, nil
 }
 
-// findManifest decides what a command composes: the manifest a flag named, the
-// one convention found, or the single directory --proto names. Shared by
-// `catalogue build` and `garm lint`, which must agree about it.
-//
-// The precedence is the one that keeps `garm catalogue build` with no arguments
-// right in both worlds. A manifest is the primary input, so it wins whenever
-// there is one; a tree that has not migrated still builds from proto/, because
-// every runbook and CI pipeline in the estate passes --proto and none of them
-// should break on a minor release. What is NOT allowed is both at once: --proto
-// and --manifest name two different inputs, and picking one silently would build
-// something other than what was asked for.
+// findManifest decides what a command composes: the manifest a flag named, or
+// the one convention found. Shared by `catalogue build` and `garm lint`, which
+// must agree about it.
 //
 // It returns the manifest, the directory paths inside it resolve against, and
 // the origin a refusal names.
 func findManifest(f inputFlags) (*manifest.Manifest, string, string, error) {
-	switch {
-	case f.manifest != "" && f.protoSet:
-		return nil, "", "", fmt.Errorf("--manifest %s and --proto %s name two different inputs. "+
-			"A manifest already says which directories compose into the catalogue, so pass one "+
-			"or the other", f.manifest, f.protoDir)
-
-	case f.manifest != "":
+	if f.manifest != "" {
 		m, err := manifest.Load(f.manifest)
 		if err != nil {
 			return nil, "", "", err
 		}
 		return m, filepath.Dir(f.manifest), f.manifest, nil
-
-	case !f.protoSet:
-		if path, ok := manifest.Find("."); ok {
-			m, err := manifest.Load(path)
-			if err != nil {
-				return nil, "", "", err
-			}
-			return m, ".", path, nil
-		}
-		if _, err := os.Stat(f.protoDir); err != nil {
-			return nil, "", "", fmt.Errorf("no %s here and no %s/ either: a catalogue is "+
-				"composed from the inputs a manifest declares, so there is nothing to "+
-				"compose. Write one with `garm catalogue init`, or name a directory with "+
-				"--proto", manifest.Filename, f.protoDir)
-		}
-
-	case f.protoSet:
-		if path, ok := manifest.Find("."); ok {
-			return nil, "", "", fmt.Errorf("--proto %s and %s name two different inputs. "+
-				"The tree has already said what composes into its catalogue, so --proto "+
-				"would judge %s alone as the whole thing instead of the part it is. Pass "+
-				"--manifest %s, or drop --proto and let it be found",
-				f.protoDir, path, f.protoDir, path)
-		}
 	}
-	// The single-input case, spelled as what it is: a manifest with one path
-	// entry. Composition is then one code path rather than two, so the
-	// deprecated flag cannot drift away from the supported input — and the
-	// artifact records its one local input the same way a composed one does.
-	return singleTree(f.protoDir), ".", f.protoDir, nil
-}
 
-func singleTree(dir string) *manifest.Manifest {
-	return &manifest.Manifest{
-		Schema:  manifest.Schema,
-		Name:    dir,
-		Include: []manifest.Entry{{Path: dir}},
+	if path, ok := manifest.Find("."); ok {
+		m, err := manifest.Load(path)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return m, ".", path, nil
 	}
+
+	// The only refusal left, and it is the only thing standing between a user
+	// and confusion: name the directory it looked in and say exactly what to
+	// run.
+	dir, err := os.Getwd()
+	if err != nil {
+		dir = "."
+	}
+	return nil, "", "", fmt.Errorf("no %s in %s: a catalogue is composed from the inputs a "+
+		"manifest declares, so there is nothing to compose. Run `garm catalogue init` here, "+
+		"or pass --manifest to name one elsewhere", manifest.Filename, dir)
 }
 
 // promptsRoot answers "relative to what" for an agent's prompts.*.path.
 //
 // --prompts-root wins because it always did. Then the manifest's `prompts:`,
-// relative to the manifest — which is the deployment's own answer and the one a
-// composed build needs, since the tree's root is no longer derivable from a
-// --proto directory. Then the historical default: the parent of --proto, because
-// `--proto proto` means the prompts are beside it and not inside it.
+// relative to the manifest. Then the manifest's own directory, which is what
+// an absent `prompts:` key means — see Manifest.Prompts's doc.
 //
 // A prompt that a COMPOSED agent pins lives in ITS module and is not reachable
 // from any of these; `catalogue publish` resolves those per input, and the entry
 // key that says where is parsed and carried already.
-func promptsRoot(flag string, f inputFlags, m *manifest.Manifest, dir string) string {
+func promptsRoot(flag string, m *manifest.Manifest, dir string) string {
 	switch {
 	case flag != "":
 		return flag
 	case m.Prompts != "":
 		return filepath.Join(dir, m.Prompts)
 	default:
-		return resolvePromptsRoot("", f.protoDir)
+		return dir
 	}
 }
 
@@ -314,9 +265,8 @@ func promptsRoot(flag string, f inputFlags, m *manifest.Manifest, dir string) st
 //
 // Nil rather than an empty Taxonomy, and the difference is the whole migration:
 // nil means "scrape the file-level proto options", which is what every tree
-// built before v0.22.0 depends on and what `--proto` will always mean, since a
-// synthesised one-entry manifest has no taxonomy to declare. A non-nil value
-// replaces the scrape entirely.
+// built before v0.22.0 depends on and still gets from a manifest that declares
+// no `taxonomy:` block. A non-nil value replaces the scrape entirely.
 func taxonomyOf(m *manifest.Manifest) *compiler.Taxonomy {
 	compartments, toolSets := m.Taxonomy.Decls()
 	if compartments == nil && toolSets == nil {
