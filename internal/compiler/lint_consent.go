@@ -104,17 +104,31 @@ func lintConsentTriggers(a Agent) []Diag {
 	return nil
 }
 
-// lintConsentLimits covers A13: a scope naming a WRITE or DESTRUCTIVE tool
-// must declare default_limits bounding it, and every caveat in those limits
-// must type-check as a predicate against the request message of EVERY tool
-// the scope names.
+// lintConsentLimits covers A13: default_period_days must be positive, a
+// scope naming a WRITE or DESTRUCTIVE tool must declare default_limits
+// bounding it, and every caveat in those limits must type-check as a
+// predicate against the request message of EVERY tool the scope names.
 //
-// The second half is not optional either. A caveat is evaluated against
+// default_period_days applies to every consent block, writable or not — the
+// contract's own field comment says it is "Lint: required, > 0" — so that
+// check runs before the writable gate below, which only applies to the
+// bounds half.
+//
+// The caveat half is not optional either. A caveat is evaluated against
 // whichever tool in scope a run actually calls — it is "stateless, enforced
 // by garmd at grant verification" (Limits.caveats), not tied to one tool —
 // so a caveat valid for payments.v1.initiate_payment and nonsense for
 // accounts.v1.get_balance cannot be declared on a template spanning both,
 // and the refusal names which tool rejected it.
+//
+// Limits.cumulative is read here ONLY to say it is not yet an enforceable
+// bound on its own — never accepted as satisfying the "at least one bound"
+// requirement. Nothing enforces it today: garmd holds no database to
+// evaluate a cumulative ceiling against, only the OWNING TOOL could from
+// its own records once it declares that it does (none does yet), and the
+// STS itself refuses to mint a grant that sets one. Accepting a template
+// whose only declared bound is one nothing enforces would make this rule
+// pass exactly the unbounded-authority case it exists to refuse.
 func lintConsentLimits(a Agent, tools map[string]Tool, files *protoregistry.Files) []Diag {
 	c := a.Policy.GetConsent()
 	if c == nil {
@@ -122,6 +136,14 @@ func lintConsentLimits(a Agent, tools map[string]Tool, files *protoregistry.File
 	}
 	svc := string(a.Service.FullName())
 	var out []Diag
+
+	if c.GetDefaultPeriodDays() == 0 {
+		out = append(out, Diag{Rule: "A13", Path: svc, Msg: "" +
+			"consent.default_period_days is 0. This is the grant's default " +
+			"validity period — the STS caps it but does not supply one — and a " +
+			"zero-length default is a standing authority nobody could ever use. " +
+			"Declare a positive number of days"})
+	}
 
 	// scoped is only the tools this run can actually resolve. A scope entry
 	// outside the allowlist, or naming no tool at all, is already A12's (or
@@ -145,13 +167,25 @@ func lintConsentLimits(a Agent, tools map[string]Tool, files *protoregistry.File
 	}
 
 	limits := c.GetDefaultLimits()
-	if limits == nil || (limits.GetMaxRuns() == 0 &&
-		len(limits.GetCaveats()) == 0 && len(limits.GetCumulative()) == 0) {
+	bounded := limits != nil && (limits.GetMaxRuns() > 0 || len(limits.GetCaveats()) > 0)
+	switch {
+	case bounded:
+		// at least one enforceable bound; nothing to refuse here.
+	case limits != nil && len(limits.GetCumulative()) > 0:
+		out = append(out, Diag{Rule: "A13", Path: svc, Msg: "" +
+			"consent.scope names a WRITE or DESTRUCTIVE tool, and " +
+			"default_limits bounds it with a cumulative ceiling alone. A " +
+			"cumulative ceiling is not yet an enforceable bound: garmd holds " +
+			"no database to evaluate it against, no tool yet declares that it " +
+			"enforces one from its own records, and the STS refuses to mint a " +
+			"grant that sets one. Declare max_runs or a caveat, in addition to " +
+			"or instead of the cumulative ceiling"})
+	default:
 		out = append(out, Diag{Rule: "A13", Path: svc, Msg: "" +
 			"consent.scope names a WRITE or DESTRUCTIVE tool and declares no " +
 			"default_limits bounding it. An unbounded standing authority cannot " +
-			"be meaningfully consented to. Declare at least one of max_runs, a " +
-			"caveat, or a cumulative ceiling"})
+			"be meaningfully consented to. Declare at least one of max_runs or a " +
+			"caveat"})
 	}
 
 	for _, caveat := range limits.GetCaveats() {

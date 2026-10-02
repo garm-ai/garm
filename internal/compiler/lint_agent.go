@@ -83,12 +83,15 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		// rather than at this call site.
 		out = append(out, lintWorkflowExpressionsWith(a, tools, agentReplies, optsWithFiles)...)
 		// A11 reads the same tool index A7 does, to compare a `set` source's
-		// field policy against the state field it lands on. Unlike A7 it
-		// takes no opts: a step whose tool is not in `tools` (PartialSet) is
-		// simply not checked here, the same silence A7's own per-step
-		// handling would have if it did not warn — see KNOWN-GAPS if this
-		// ever needs a PartialSet warning of its own.
-		out = append(out, lintStatePropagation(a, tools)...)
+		// field policy against the state field it lands on, and — like A4,
+		// A6, A7 and A13 — resolves `response`'s type over `files`, this
+		// run's whole generation, rather than only the import closure of
+		// `state` and the one step's tool. It takes no Options, unlike A7:
+		// a step whose tool is not in `tools` (PartialSet) is simply not
+		// checked here, the same silence A7's own per-step handling would
+		// have if it did not warn — see KNOWN-GAPS if this ever needs a
+		// PartialSet warning of its own.
+		out = append(out, lintStatePropagationFiles(a, tools, files)...)
 		// A12, A14 and A15 judge only the agent's own declaration — the
 		// scope against its own allowlist, the description, the triggers —
 		// so, like A1, A6 and A8, they run everywhere, PartialSet included.

@@ -778,18 +778,22 @@ func pathCovers(written, read string) bool {
 // stateEnv declares `state` plus any extra variables — `response`, at a
 // step's `set` — over the import closure of their own files (filesFromMessages,
 // via envFiles). It is stateEnvFiles(nil, state, extra): the narrow scope
-// `celEnvFor` always gave every caller, kept here unchanged for the one
-// caller (this package's own test suite) that calls it directly and so
-// cannot be handed the whole generation's registry.
+// `celEnvFor` always gave every caller, kept here ONLY for
+// TestCelTypeFitsAcceptsOnlyRealWidenings (lint_workflow_expr_test.go), which
+// calls it directly and predates *protoregistry.Files. Every production
+// caller — lintWorkflowExpressionsWith and lintStatePropagationFiles — goes
+// through stateEnvFiles with the whole generation's registry instead; this
+// function has no other caller.
 func stateEnv(state protoreflect.MessageDescriptor,
 	extra map[string]protoreflect.MessageDescriptor) (*cel.Env, error) {
 	return stateEnvFiles(nil, state, extra)
 }
 
 // stateEnvFiles is stateEnv over files when the caller has the whole
-// generation's registry to offer — lintWorkflowExpressionsWith's production
-// path, through opts.Files — and over each variable's own import closure
-// otherwise (files == nil). See lint_cel.go.
+// generation's registry to offer — lintWorkflowExpressionsWith's and
+// lintStatePropagationFiles's production path, through opts.Files or a
+// files parameter — and over each variable's own import closure otherwise
+// (files == nil, stateEnv's one test caller). See lint_cel.go.
 func stateEnvFiles(files *protoregistry.Files, state protoreflect.MessageDescriptor,
 	extra map[string]protoreflect.MessageDescriptor) (*cel.Env, error) {
 	vars := make(map[string]protoreflect.MessageDescriptor, len(extra)+1)
@@ -1057,7 +1061,24 @@ func sortedSet(m map[string]bool) []string {
 // own `field_policy` nor a message default has nothing to propagate, and
 // inventing a classification nobody declared would be a rule the schema
 // author cannot act on.
+//
+// lintStatePropagation is lintStatePropagationFiles(a, tools, nil) — kept at
+// this exact signature because this package's own tests
+// (lint_workflow_policy_test.go) call it directly and predate
+// *protoregistry.Files. It is not called in production; lintAgents calls
+// lintStatePropagationFiles with the run's whole-generation registry
+// instead, so A11 resolves a `response` type the same way A4, A6, A7 and
+// A13 do rather than only through the import closure of `state` and that
+// one step's tool's own file.
 func lintStatePropagation(a Agent, tools map[string]Tool) []Diag {
+	return lintStatePropagationFiles(a, tools, nil)
+}
+
+// lintStatePropagationFiles is A11, over files when the caller has the
+// whole generation's registry to offer and over the narrower import
+// closure of `state` and each step's response message otherwise (files ==
+// nil — see stateEnvFiles).
+func lintStatePropagationFiles(a Agent, tools map[string]Tool, files *protoregistry.Files) []Diag {
 	p := a.Policy
 	if p.GetMode() != agentv1.Mode_MODE_WORKFLOW {
 		return nil
@@ -1079,7 +1100,7 @@ func lintStatePropagation(a Agent, tools map[string]Tool) []Diag {
 			continue
 		}
 		resp := tool.Method.Output()
-		env, err := stateEnv(state, map[string]protoreflect.MessageDescriptor{"response": resp})
+		env, err := stateEnvFiles(files, state, map[string]protoreflect.MessageDescriptor{"response": resp})
 		if err != nil {
 			continue // A7 already reports environment failures for this step
 		}

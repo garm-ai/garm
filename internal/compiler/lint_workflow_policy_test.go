@@ -839,3 +839,165 @@ service Checker {
 		t.Fatalf("lintAgents must reach A11 — a rule nothing calls does not run: %v", diags)
 	}
 }
+
+// TestA11ResolvesAValueExpressionReachableOnlyThroughTheWholeGeneration is
+// fix round 1's regression pin for Finding A: lintStatePropagationFiles must
+// resolve a `set` expression's types against `files`, this run's whole
+// generation — not just the import closure of `state` and the one step's
+// response message, which is all the narrow `lintStatePropagation` (kept
+// only for this package's own pre-existing tests, below) can see.
+//
+// common.v1.Audit is declared in its OWN file, imported by NEITHER
+// bank/v1/agent.proto NOR s/v1/check.proto below — it reaches this run's fds
+// only because compile.Tree compiles every .proto under the root, not only
+// what something imports. The `set` expression constructs
+// common.v1.Audit{...} as a CEL message literal, which the type-checker can
+// resolve only if the environment's type registry spans that third file.
+//
+// Why this matters: under the OLD narrow scope the expression would fail to
+// COMPILE, and checkStatePropagation's own early return
+// ("A7 already reports an expression that does not compile") assumes A7
+// caught it. But A7 already had the wide registry before this fix round
+// (opts.Files), so A7 compiles the SAME expression fine and says nothing —
+// meaning neither rule would have reported anything, and the `set`'s real
+// problem (an indirect, non-`derives`-annotated read of `response.note`,
+// a RESTRICTED field) would have escaped both rules silently. That silent
+// gap is exactly the "two notions of valid, nothing testing it" failure
+// this unit exists to remove.
+func TestA11ResolvesAValueExpressionReachableOnlyThroughTheWholeGeneration(t *testing.T) {
+	agentSrc := `syntax = "proto3";
+package bank.v1;
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/bank/v1;bankv1";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "pay" description: "Payments." }] };
+
+message WholeGenRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string subject = 1;
+}
+
+message WholeGenState {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string marker = 1;
+}
+
+service WholeGenAgent {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_WORKFLOW
+    tools: [{ fqn: "s.v1.check" }]
+    initial: [{ key: "subject" value: "input.subject" }]
+    steps: [{ id: "check" tool: "s.v1.check"
+      set: [{ key: "marker"
+        value: "response.flagged ? common.v1.Audit{label: 'synthetic'}.label : response.note" }] }]
+  };
+  rpc Invoke(WholeGenRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "wholegen_agent" title: "WholeGen" description: "Start a run."
+      verb: VERB_WRITE min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "wholegen_agent_run" title: "Run" description: "Read a run."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+  rpc GetState(garm.agent.v1.RunRef) returns (WholeGenState) {
+    option (garm.tool.v1.tool) = {
+      name: "wholegen_agent_state" title: "State" description: "Read a run's state."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["pay"]
+    };
+  }
+}
+`
+	toolSrc := `syntax = "proto3";
+package s.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/s/v1;sv1";
+option (garm.tool.v1.tool_sets) = { declared: [{ name: "ledger" description: "The ledger." }] };
+
+message CheckRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string subject = 1;
+}
+message CheckResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional bool flagged = 1;
+  optional string note = 2 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  }];
+}
+service Checker {
+  rpc Check(CheckRequest) returns (CheckResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "check" title: "Check" description: "Check a subject."
+      verb: VERB_READ min_clearance: CLEARANCE_INTERNAL sets: ["ledger"]
+    };
+  }
+}
+`
+	// Deliberately unimported by either file above: it reaches this run's
+	// fds only because compile.Tree compiles every .proto under the root.
+	commonSrc := `syntax = "proto3";
+package common.v1;
+import "garm/tool/v1/tool.proto";
+option go_package = "example.com/common/v1;commonv1";
+
+message Audit {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional string label = 1;
+}
+`
+	fds := compileWorkflowFixture(t, map[string]string{
+		"bank/v1/agent.proto":    agentSrc,
+		"s/v1/check.proto":       toolSrc,
+		"common/v1/common.proto": commonSrc,
+	})
+	agents := Agents(fds)
+	if len(agents) != 1 {
+		t.Fatalf("found %d agents, want 1", len(agents))
+	}
+	tools := toolIndex(fds)
+
+	files, err := filesRegistry(fds)
+	if err != nil {
+		t.Fatalf("filesRegistry: %v", err)
+	}
+
+	// The production path: lintAgents, which now passes the whole
+	// generation's registry down to A11 (lint_agent.go). The `set`
+	// expression compiles — the registry spans common.v1.Audit's file even
+	// though nothing imports it — and A11 refuses it as an indirect,
+	// unannotated read of a RESTRICTED response field.
+	wide := lintAgents(fds, Options{})
+	if !hasRule(wide, "A11") {
+		t.Fatalf("A11 did not resolve a `set` expression reachable only through "+
+			"the whole generation, via the real lintAgents entry point: %v", wide)
+	}
+	if !mentions(wide, "not a direct field selection") {
+		t.Errorf("A11's refusal should name why: not a direct selection, so "+
+			"clearance cannot be compared field-for-field: %v", wide)
+	}
+
+	// The regression this pins: lintStatePropagation — kept at its old
+	// signature only for this package's own pre-existing tests — passes
+	// `nil` for files and so cannot resolve common.v1.Audit. Reproduced
+	// here on purpose, as the contrast: before this fix round, production
+	// called exactly this narrow path, and the disclosure above would have
+	// gone unreported by both A7 and A11.
+	narrow := lintStatePropagation(agents[0], tools)
+	if hasRule(narrow, "A11") {
+		t.Fatalf("narrow scope unexpectedly resolved common.v1.Audit; the fixture "+
+			"no longer demonstrates the gap this test exists to pin: %v", narrow)
+	}
+
+	// And the fix itself, called directly: the same rule, given the real
+	// registry, finds exactly what lintAgents found above.
+	resolved := lintStatePropagationFiles(agents[0], tools, files)
+	if !hasRule(resolved, "A11") {
+		t.Fatalf("lintStatePropagationFiles with the whole generation's registry "+
+			"did not resolve the expression: %v", resolved)
+	}
+}

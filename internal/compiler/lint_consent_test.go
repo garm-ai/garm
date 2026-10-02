@@ -38,6 +38,7 @@ type consentSpec struct {
 	limits       *agentv1.Limits
 	description  string
 	triggers     []agentv1.TriggerKind
+	periodDays   uint32
 }
 
 type consentOpt func(*consentSpec)
@@ -49,6 +50,7 @@ func agentWithConsent(opts ...consentOpt) consentSpec {
 	spec := consentSpec{
 		description: "Read the account balance on the customer's behalf.",
 		triggers:    []agentv1.TriggerKind{agentv1.TriggerKind_TRIGGER_KIND_PRINCIPAL},
+		periodDays:  30,
 	}
 	for _, o := range opts {
 		o(&spec)
@@ -63,6 +65,12 @@ func allowlist(fqns ...string) consentOpt {
 }
 
 func writable(w bool) consentOpt { return func(s *consentSpec) { s.writable = w } }
+
+// periodDays overrides the default_period_days consentPolicyBody writes
+// (agentWithConsent's own default is 30, so every other test's fixture is
+// unaffected). Fix round 1, Finding C: A13 was missing the contract's own
+// "Lint: required, > 0" on this field.
+func periodDays(n uint32) consentOpt { return func(s *consentSpec) { s.periodDays = n } }
 
 func limits(l *agentv1.Limits) consentOpt { return func(s *consentSpec) { s.limits = l } }
 
@@ -172,12 +180,12 @@ func consentPolicyBody(spec consentSpec, allow []string) string {
     consent: {
       scope: [%s]
       description: %q
-      default_period_days: 30
+      default_period_days: %d
       %s
       triggers: [%s]
     }
 `, strings.Join(toolRefs, ", "), strings.Join(scopeQ, ", "), spec.description,
-		limitsText, strings.Join(trig, ", "))
+		spec.periodDays, limitsText, strings.Join(trig, ", "))
 }
 
 func limitsBody(l *agentv1.Limits) string {
@@ -346,4 +354,26 @@ func TestAConsentCaveatNamingAFieldTheToolDoesNotHaveIsRefused(t *testing.T) {
 	err := lintAgent(t, agentWithConsent(scope("payments.v1.initiate_payment"), writable(true),
 		limits(&agentv1.Limits{Caveats: []string{"args.amount_minor_unit <= 1"}})))
 	wantLintError(t, err, "A13", "amount_minor_unit")
+}
+
+// Fix round 1, Finding C: the contract's own field comment on
+// Consent.default_period_days reads "Lint: required, > 0", and nothing
+// enforced it. A zero-length default validity period is a standing
+// authority nobody could ever use — found at consent time instead of here.
+func TestA13RefusesAZeroDefaultPeriodDays(t *testing.T) {
+	err := lintAgent(t, agentWithConsent(scope("accounts.v1.get_balance"), periodDays(0)))
+	wantLintError(t, err, "A13", "default_period_days")
+}
+
+// Ruling on fix round 1: Limits.cumulative is NOT one of A13's accepted
+// bounds — nothing enforces a cumulative ceiling today (garmd holds no
+// database to evaluate it against, no tool yet declares that it enforces
+// one, and the STS itself refuses to mint a grant that sets one), so a
+// template bounded ONLY by cumulative is exactly the unbounded-authority
+// case A13 exists to refuse. The refusal must say so, rather than read like
+// the generic "no bound at all" case the previous test already covers.
+func TestA13RefusesAWritableScopeBoundedOnlyByACumulativeCeiling(t *testing.T) {
+	err := lintAgent(t, agentWithConsent(scope("mail.v1.send"), writable(true),
+		limits(&agentv1.Limits{Cumulative: map[string]int64{"sent_today": 10}})))
+	wantLintError(t, err, "A13", "cumulative ceiling is not yet an enforceable bound")
 }
