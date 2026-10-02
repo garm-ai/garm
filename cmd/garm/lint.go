@@ -67,9 +67,9 @@ func newLintCmd() *cobra.Command {
 		"The manifest to compose from (default: "+manifest.Filename+" in the working directory)")
 	cmd.Flags().StringVar(&protoDir, "proto", "proto",
 		"DEPRECATED: lint this one directory instead of a manifest, as a manifest with a "+
-			"single `path:` entry. Used only when there is no "+manifest.Filename+", or when "+
-			"given explicitly. Write a manifest instead: a rule about the whole catalogue "+
-			"can only be checked against the whole catalogue")
+			"single `path:` entry. Used only when there is no "+manifest.Filename+"; refused "+
+			"when there is one, since a rule about the whole catalogue can only be checked "+
+			"against the whole catalogue")
 	cmd.Flags().StringVar(&promptsDir, "prompts-root", "",
 		"Directory an agent's prompts.*.path resolves against (default: the manifest's "+
 			"`prompts:`, or the parent of --proto)")

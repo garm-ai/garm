@@ -154,6 +154,28 @@ func TestAManifestWinsOverTheFallback(t *testing.T) {
 	}
 }
 
+// --proto in a tree that already has a catalogue.yaml is the same mistake as
+// --manifest and --proto together, made implicitly: the tree has said what
+// composes into its catalogue, and the flag asks for one directory of it to
+// be judged as the whole. Refuse, naming both inputs, rather than silently
+// building a subset and calling it the catalogue.
+func TestBuildRefusesProtoWhenAManifestIsPresent(t *testing.T) {
+	dir := fixture(t) // `garm init` already wrote catalogue.yaml here.
+	out := filepath.Join(t.TempDir(), "c.binpb")
+	_, _, err := buildIn(t, dir, "--proto", "proto", "-o", out)
+	if err == nil {
+		t.Fatal("--proto was accepted on a tree that already has a manifest")
+	}
+	if !strings.Contains(err.Error(), "two different inputs") {
+		t.Fatalf("the refusal does not say why: %v", err)
+	}
+	for _, want := range []string{"proto", manifest.Filename} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+}
+
 // --proto and --manifest name two different inputs, and picking one silently
 // would build something other than what was asked for.
 func TestBuildRefusesAManifestAndAProtoDirectoryTogether(t *testing.T) {

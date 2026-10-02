@@ -73,8 +73,9 @@ func newCatalogueBuildCmd() *cobra.Command {
 		"The manifest to compose from (default: "+manifest.Filename+" in the working directory)")
 	cmd.Flags().StringVar(&protoDir, "proto", "proto",
 		"DEPRECATED: build from this one directory instead of a manifest, as a manifest with a "+
-			"single `path:` entry. Used only when there is no "+manifest.Filename+", or when given "+
-			"explicitly. Write a manifest instead: it is the input that can name a module")
+			"single `path:` entry. Used only when there is no "+manifest.Filename+"; refused when "+
+			"there is one, since it already says what composes into the catalogue. Write a "+
+			"manifest instead: it is the input that can name a module")
 	cmd.Flags().StringVar(&promptsRoot, "prompts-root", "",
 		"Directory an agent's prompts.*.path resolves against (default: the manifest's `prompts:`, "+
 			"or the parent of --proto)")
@@ -260,6 +261,15 @@ func findManifest(f inputFlags) (*manifest.Manifest, string, string, error) {
 				"composed from the inputs a manifest declares, so there is nothing to "+
 				"compose. Write one with `garm catalogue init`, or name a directory with "+
 				"--proto", manifest.Filename, f.protoDir)
+		}
+
+	case f.protoSet:
+		if path, ok := manifest.Find("."); ok {
+			return nil, "", "", fmt.Errorf("--proto %s and %s name two different inputs. "+
+				"The tree has already said what composes into its catalogue, so --proto "+
+				"would judge %s alone as the whole thing instead of the part it is. Pass "+
+				"--manifest %s, or drop --proto and let it be found",
+				f.protoDir, path, f.protoDir, path)
 		}
 	}
 	// The single-input case, spelled as what it is: a manifest with one path

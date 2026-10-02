@@ -146,6 +146,11 @@ records where each package came from. The manifest and its rules are in
 `--proto` still builds from one directory and is **deprecated**: it is the
 single-input case, turned into a manifest with one `path:` entry before anything
 else happens, so it produces the same bytes as the manifest that replaces it.
+This only works on a tree with **no** `catalogue.yaml` — the example below is a
+different, pre-manifest tree, not the one above. On a tree that already has a
+`catalogue.yaml`, `--proto` is refused, the same as passing `--manifest` and
+`--proto` together: the manifest has already said what composes into the
+catalogue, and `--proto` would judge one directory of it as the whole.
 
 ```console
 $ garm catalogue build --proto proto -o catalogue.binpb --source "acme/tools@$(git rev-parse --short HEAD)"

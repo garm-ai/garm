@@ -103,32 +103,26 @@ rows of §6's table P1 cannot check:
   `garm lint` as well as on `catalogue build`. A warning on stderr would change
   the output of every pipeline that still passes it, which is all of them, so the
   deprecation is documentation until the flag is removed.
-- **`garm lint --proto` is now WRONG on a composed tree, not merely narrower, and
-  the fix is decided and unbuilt.** `--proto` becomes a synthetic one-entry
-  manifest and then runs the FULL rule set, `PartialSet` unset. On a tree that
-  adopts a tool from a module the adopted tool is not in that directory, so A3
-  refuses an agent's allowlist for naming a tool it cannot see — the bank's
-  research assistant fails on `web.v1.fetch_page` while the manifest passes. A
-  deprecated flag that produces a false failure is worse than one that is
-  removed.
+- **`--proto` is refused on a tree that already has a `catalogue.yaml`,
+  since v0.28.0.** It used to turn into a synthetic one-entry manifest and run
+  the FULL rule set over it, `PartialSet` unset — so on a tree that adopts a
+  tool from a module, the adopted tool is not in that one directory and A3
+  refused an agent's allowlist for naming a tool it could not see. That is
+  exactly what `garm-ai/examples`' bank hit on `web.v1.fetch_page`: the
+  manifest passed and `--proto` failed the same tree. A deprecated flag
+  producing a false failure is worse than one that is removed, so `--proto`
+  together with a `catalogue.yaml` beside it is now the same error as
+  `--manifest` and `--proto` together — two inputs named at once, naming both
+  and saying to pass `--manifest` or drop `--proto` and let the manifest be
+  found. `--proto` in a tree with **no** manifest is unaffected: it is still
+  the whole catalogue, exactly as before, which is what the unmigrated
+  pipelines in this estate rely on. `findManifest` in `cmd/garm/catalogue.go`
+  decides this for both `garm lint` and `garm catalogue build`, which share it.
 
-  The decision, for whoever picks it up: **refuse, when a `catalogue.yaml` sits
-  beside it.** `--manifest` together with `--proto` is already an error naming
-  "two different inputs", and `--proto` in a tree that has a manifest is the same
-  mistake made implicitly — the tree has said what composes into its catalogue,
-  and the flag asks for part of it to be judged as the whole. `--proto` in a tree
-  with no manifest is still the whole catalogue and keeps today's behaviour, so
-  the pre-manifest pipelines it exists for are untouched. What it is NOT is
-  `PartialSet`: downgrading A3, A9 and P1 to warnings whenever `--proto` appears
-  would quietly stop checking them for every tree that has not migrated, which is
-  most of them, and a rule skipped wherever nobody is looking is not a rule.
-
-  Held out of v0.21.1 deliberately. It adds a refusal where an invocation
-  succeeds today, which is a breaking change for every pipeline still passing the
-  flag, and it should not ride along with a fix people may want to cherry-pick.
-  And the two failures are not the same danger: this one is loud and its
-  workaround is the documented replacement, where the `sets` miss was silent and
-  reassuring.
+  What this is NOT: `PartialSet`. A3, A9 and P1 are not downgraded to warnings
+  when `--proto` appears — that would quietly stop checking them for every tree
+  that has not migrated, which is most of them, and a rule skipped wherever
+  nobody is looking is not a rule.
 - **A tree with no `go.mod` cannot pin anything, and only `catalogue init` says so
   kindly.** `Resolve` refuses a manifest with module entries when there is no
   go.mod in the manifest's directory or any directory above it — up, because a
