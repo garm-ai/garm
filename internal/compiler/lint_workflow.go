@@ -10,6 +10,7 @@ import (
 	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
@@ -257,14 +258,20 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool,
 
 	// One environment per shape, not per step: building one walks a file's
 	// whole type graph, and every step's `with` sees the same `state`.
-	stateOnly, err := stateEnv(state, nil)
+	//
+	// opts.Files, when the caller has it (lintAgents' production path), is
+	// this run's WHOLE generation — see lint_cel.go for why that is wider
+	// than celEnvFor's old per-call import walk, and intentionally so. nil
+	// (every direct call from this package's own tests) falls back to the
+	// narrower, unchanged scope.
+	stateOnly, err := stateEnvFiles(opts.Files, state, nil)
 	if err != nil {
 		bad("cannot build an expression environment over %s: %v", state.FullName(), err)
 		return out
 	}
 	setEnvs := map[protoreflect.FullName]*cel.Env{}
 
-	out = append(out, lintWorkflowInitial(a, state, initial)...)
+	out = append(out, lintWorkflowInitial(a, state, initial, opts.Files)...)
 	out = append(out, absentToolWarning(a, allowed, tools, opts)...)
 
 	for _, s := range p.GetSteps() {
@@ -357,7 +364,7 @@ func lintWorkflowExpressionsWith(a Agent, tools map[string]Tool,
 		// A `set` may additionally read `response`.
 		senv, ok := setEnvs[resp.FullName()]
 		if !ok {
-			senv, err = stateEnv(state, map[string]protoreflect.MessageDescriptor{
+			senv, err = stateEnvFiles(opts.Files, state, map[string]protoreflect.MessageDescriptor{
 				"response": resp})
 			if err != nil {
 				bad("step %q: cannot build a `set` environment over %s: %v",
@@ -461,7 +468,12 @@ func agentStepReplies(agents []Agent, tools map[string]Tool) map[string]protoref
 // in one of these is a state field that is silently zero for the whole run —
 // the same hole the dominance rule closes, one level earlier. Both halves need
 // only the agent's own file, so this runs under PartialSet too.
-func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map[string]bool) []Diag {
+//
+// files is this run's whole generation when the caller has it (see
+// lint_cel.go); nil falls back to the narrower, unchanged import closure of
+// Invoke's own request message.
+func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map[string]bool,
+	files *protoregistry.Files) []Diag {
 	if len(keys) == 0 {
 		return nil // A8 reports an empty `initial`; nothing to check here.
 	}
@@ -477,7 +489,7 @@ func lintWorkflowInitial(a Agent, state protoreflect.MessageDescriptor, keys map
 	}
 	// `state` is deliberately absent from this environment: `initial` is what
 	// creates the state, so there is nothing yet to read.
-	env, err := celEnvFor([]celVar{{name: "input", md: a.Invoke.Input()}})
+	env, err := envFiles(files, map[string]protoreflect.MessageDescriptor{"input": a.Invoke.Input()})
 	if err != nil {
 		bad("cannot build an environment over %s for `initial`: %v",
 			a.Invoke.Input().FullName(), err)
@@ -763,53 +775,29 @@ func pathCovers(written, read string) bool {
 		strings.HasPrefix(written, read+".")
 }
 
-// celVar is one variable declaration: a name and the message type it holds.
-type celVar struct {
-	name string
-	md   protoreflect.MessageDescriptor
-}
-
-// celEnvFor builds a CEL environment declaring each variable as its message
-// type, over a type registry walked from every one of those messages' files.
-//
-// The descriptors come from the tree being linted, not from anything this
-// binary links, so the provider is built from the file descriptors — exactly
-// as guardEnv does for A4. The IMPORT walk is what makes a
-// google.protobuf.Timestamp inside a state message resolve rather than
-// becoming an unknown type the moment an expression touches it.
-func celEnvFor(vars []celVar) (*cel.Env, error) {
-	reg, err := types.NewRegistry()
-	if err != nil {
-		return nil, err
-	}
-	seen := map[string]bool{}
-	opts := make([]cel.EnvOption, 0, len(vars)+2)
-	opts = append(opts, cel.CustomTypeAdapter(reg), cel.CustomTypeProvider(reg))
-	for _, v := range vars {
-		if err := registerFileAndImports(reg, v.md.ParentFile(), seen); err != nil {
-			return nil, err
-		}
-		opts = append(opts, cel.Variable(v.name, cel.ObjectType(string(v.md.FullName()))))
-	}
-	return cel.NewEnv(opts...)
-}
-
 // stateEnv declares `state` plus any extra variables — `response`, at a
-// step's `set` — over a registry built from every one of those messages'
-// files and their imports.
+// step's `set` — over the import closure of their own files (filesFromMessages,
+// via envFiles). It is stateEnvFiles(nil, state, extra): the narrow scope
+// `celEnvFor` always gave every caller, kept here unchanged for the one
+// caller (this package's own test suite) that calls it directly and so
+// cannot be handed the whole generation's registry.
 func stateEnv(state protoreflect.MessageDescriptor,
 	extra map[string]protoreflect.MessageDescriptor) (*cel.Env, error) {
-	vars := make([]celVar, 0, len(extra)+1)
-	vars = append(vars, celVar{name: "state", md: state})
-	names := make([]string, 0, len(extra))
-	for n := range extra {
-		names = append(names, n)
+	return stateEnvFiles(nil, state, extra)
+}
+
+// stateEnvFiles is stateEnv over files when the caller has the whole
+// generation's registry to offer — lintWorkflowExpressionsWith's production
+// path, through opts.Files — and over each variable's own import closure
+// otherwise (files == nil). See lint_cel.go.
+func stateEnvFiles(files *protoregistry.Files, state protoreflect.MessageDescriptor,
+	extra map[string]protoreflect.MessageDescriptor) (*cel.Env, error) {
+	vars := make(map[string]protoreflect.MessageDescriptor, len(extra)+1)
+	vars["state"] = state
+	for n, md := range extra {
+		vars[n] = md
 	}
-	sort.Strings(names) // deterministic, so a failure reproduces
-	for _, n := range names {
-		vars = append(vars, celVar{name: n, md: extra[n]})
-	}
-	return celEnvFor(vars)
+	return envFiles(files, vars)
 }
 
 // resolveFieldPath walks a dotted path, so `amount.minor_units` reaches a

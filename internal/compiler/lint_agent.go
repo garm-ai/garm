@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"cel.dev/cel-go/cel"
-	"cel.dev/cel-go/common/types"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 
 	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
 	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
@@ -47,6 +47,29 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 	// same tool, and building an environment means walking a file's whole
 	// type graph.
 	envs := map[protoreflect.FullName]*cel.Env{}
+
+	// files is this run's whole generation, for celenv to resolve a type by
+	// name across it rather than just one variable's own file and its
+	// transitive imports — see lint_cel.go. opts.Files lets a caller that
+	// already built one hand it in directly; every caller today leaves it
+	// nil and this rebuilds it from fds, which this function already has.
+	files := opts.Files
+	if files == nil {
+		var ferr error
+		files, ferr = filesRegistry(fds)
+		if ferr != nil {
+			// Surfaced once, against the whole run rather than once per
+			// agent: every guard, consent caveat and workflow expression in
+			// this run would otherwise be silently unchecked with nothing
+			// saying so.
+			out = append(out, Diag{Rule: "A4", Path: "<descriptor set>", Msg: fmt.Sprintf(
+				"building the type registry guards, consent caveats and workflow "+
+					"expressions resolve against failed: %v", ferr)})
+		}
+	}
+	optsWithFiles := opts
+	optsWithFiles.Files = files
+
 	for _, a := range agents {
 		out = append(out, lintAgentShape(a)...)
 		out = append(out, lintAgentPrompts(a, opts)...)
@@ -58,7 +81,7 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		// write-dominator rule, `initial`, `set` keys, edge predicates — still
 		// errors. See lintWorkflowExpressionsWith for why the split is there
 		// rather than at this call site.
-		out = append(out, lintWorkflowExpressionsWith(a, tools, agentReplies, opts)...)
+		out = append(out, lintWorkflowExpressionsWith(a, tools, agentReplies, optsWithFiles)...)
 		// A11 reads the same tool index A7 does, to compare a `set` source's
 		// field policy against the state field it lands on. Unlike A7 it
 		// takes no opts: a step whose tool is not in `tools` (PartialSet) is
@@ -66,19 +89,30 @@ func lintAgents(fds []protoreflect.FileDescriptor, opts Options) []Diag {
 		// handling would have if it did not warn — see KNOWN-GAPS if this
 		// ever needs a PartialSet warning of its own.
 		out = append(out, lintStatePropagation(a, tools)...)
+		// A12, A14 and A15 judge only the agent's own declaration — the
+		// scope against its own allowlist, the description, the triggers —
+		// so, like A1, A6 and A8, they run everywhere, PartialSet included.
+		out = append(out, lintConsentScope(a)...)
+		out = append(out, lintConsentDescription(a)...)
+		out = append(out, lintConsentTriggers(a)...)
 		if opts.PartialSet {
 			// Not silently: a rule that is skipped wherever nobody is
 			// looking is not a rule. Same treatment A2 gives a missing
 			// prompts root.
 			out = append(out, Diag{Rule: "A3", Path: string(a.Service.FullName()), Warn: true,
-				Msg: "the allowlist, its guards and the audience of every tool it names " +
+				Msg: "the allowlist, its guards, the audience of every tool it names, " +
+					"and whether a consent scope's writable tools are bounded (A13) " +
 					"are not checked here: this run sees one directory, not the " +
 					"catalogue. `garm lint` and `garm catalogue build` resolve them " +
 					"against the whole tree and do check them"})
 		} else {
 			out = append(out, lintAgentTools(a, tools)...)
 			out = append(out, lintManifestToolAudience(a, tools)...)
-			out = append(out, lintAgentGuards(a, tools, envs)...)
+			out = append(out, lintAgentGuards(a, tools, envs, files)...)
+			// A13 needs the SCOPED tools' verb and request descriptors, same
+			// as A3's resolution and A4's guard compilation, so it lives
+			// beside them rather than with A12/A14/A15 above.
+			out = append(out, lintConsentLimits(a, tools, files)...)
 		}
 		out = append(out, lintAgentDoorParity(a)...)
 	}
@@ -363,7 +397,8 @@ func lintAgentTools(a Agent, tools map[string]Tool) []Diag {
 // expression on one line, the column CEL reports is of little use in a
 // diagnostic that does not print the source, and a location in the text would
 // make a conformance golden move on a cel-go upgrade for no gain.
-func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullName]*cel.Env) []Diag {
+func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullName]*cel.Env,
+	files *protoregistry.Files) []Diag {
 	var out []Diag
 	svc := string(a.Service.FullName())
 
@@ -379,7 +414,7 @@ func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullN
 		env, ok := envs[msg.FullName()]
 		if !ok {
 			var err error
-			env, err = guardEnv(msg)
+			env, err = guardEnv(msg, files)
 			if err != nil {
 				out = append(out, Diag{Rule: "A4", Path: svc, Msg: fmt.Sprintf(
 					"tools[%d].guard cannot be checked: building a CEL environment for "+
@@ -426,33 +461,16 @@ func lintAgentGuards(a Agent, tools map[string]Tool, envs map[protoreflect.FullN
 	return out
 }
 
-// guardEnv declares `args` as the tool's request message type.
-//
-// The descriptors come from the tree being linted, not from anything this
-// binary links, so the type provider is built from the file descriptor rather
-// than from a Go message. RegisterDescriptor registers one file, so imports
-// are walked too — a request message with a google.protobuf.Timestamp field is
-// otherwise an unknown type the moment a guard touches it.
-// The body is celEnvFor's (lint_workflow.go) with one variable: same registry,
-// same import walk, same adapter and provider wiring. Written as a call rather
-// than repeated, so there is one place where "a CEL environment over a linted
-// tree's descriptors" is defined and A4 and A7 cannot drift apart.
-func guardEnv(md protoreflect.MessageDescriptor) (*cel.Env, error) {
-	return celEnvFor([]celVar{{name: "args", md: md}})
-}
-
-func registerFileAndImports(reg *types.Registry, fd protoreflect.FileDescriptor, seen map[string]bool) error {
-	if seen[fd.Path()] {
-		return nil
-	}
-	seen[fd.Path()] = true
-	imports := fd.Imports()
-	for i := 0; i < imports.Len(); i++ {
-		if err := registerFileAndImports(reg, imports.Get(i).FileDescriptor, seen); err != nil {
-			return err
-		}
-	}
-	return reg.RegisterDescriptor(fd)
+// guardEnv declares `args` as the tool's request message type, over files —
+// this run's whole generation when the caller has it, or md's own import
+// closure when it does not (envFiles, lint_cel.go). Both sides of a guard's
+// contract, celenv.EnvVars and cel.TypeDescs, are exactly what agentd's own
+// catalogue loader and internal/guard's call-time check build their
+// environment from too (celenv's own doc comment): one dialect, so a guard
+// that lints here and a guard the runner loads cannot disagree about what it
+// means.
+func guardEnv(md protoreflect.MessageDescriptor, files *protoregistry.Files) (*cel.Env, error) {
+	return envFiles(files, map[string]protoreflect.MessageDescriptor{"args": md})
 }
 
 // celMessages flattens CEL's issues to one line, dropping the source

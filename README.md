@@ -73,7 +73,7 @@ package that compiles field annotations into redaction plans all live in
 requires that module like any other dependency:
 
 ```
-require github.com/garm-ai/contracts v0.5.0
+require github.com/garm-ai/contracts v0.11.0
 ```
 
 Why they are not here: ten Go modules compile against the contract and exactly
@@ -301,7 +301,8 @@ Shipped: `init`, `gen`, `lint`, `catalogue init|build|diff|publish`,
 reads one and the required-platform-package rule is enforced since **v0.21.0**.
 What the manifest still does not do — the taxonomy, and `publish` resolving a
 composed agent's prompts out of its own module — is in KNOWN-GAPS.md.
-Thirty-two tool lint rules (the L series), ten agent rules (A1–A10),
+Thirty-two tool lint rules (the L series), fifteen agent rules (A1–A15 —
+A12–A15 are the standing-grants consent template, since **v0.27.0**),
 three card rules (C1, C8, C9), one ownership rule (O1, a warning) and one
 platform-package rule (P1), with twenty conformance cases. What is still missing
 is in KNOWN-GAPS.md.

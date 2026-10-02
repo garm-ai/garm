@@ -148,6 +148,41 @@ rows of §6's table P1 cannot check:
 
 ## What lint does not check
 
+- **A12-A15 (the consent template) check neither `default_period_days` nor
+  `cumulative`.** `agentv1.Consent`'s own field comment says
+  `default_period_days` is "Lint: required, > 0"; nothing here enforces that
+  yet, and a template with it unset or zero lints clean. `Limits.cumulative`
+  is read by nothing here either — A13 only judges `max_runs` and `caveats`
+  as bounds, so a scope bounded ONLY by a cumulative ceiling currently reads
+  as unbounded and is refused, which is the conservative direction to be
+  wrong in but is still a real gap against the design's "at least one of
+  max_runs, a caveat, or a cumulative ceiling." Both are additions to A13,
+  not new rule numbers, when someone picks this up.
+- **The CEL dialect converged on `github.com/garm-ai/celenv` in v0.27.0, and
+  the convergence widened what A4's guards and A6/A7's workflow expressions
+  accept.** Before v0.27.0 this package built its own `cel.dev/cel-go`
+  environment (`celEnvFor`, now gone) from a hand-walked
+  `cel.dev/cel-go/common/types.Registry`: a guard or a `with`/`set`/`initial`
+  expression could resolve a type only through the variable's own file and
+  that file's transitive imports. `celenv.EnvVars` resolves a type by name
+  across the WHOLE generation (`cel.TypeDescs`), so a guard touching a
+  message outside its own file's import closure — reachable only through
+  some OTHER tool's request or response in the same catalogue — now compiles
+  where it previously failed. This is intentional and is not a bug to fix
+  back: a lint gate stricter than the runtime it is meant to agree with
+  rejects a declaration that would have worked, which is the worse failure
+  of the two. See `internal/compiler/lint_cel.go`.
+- **A11 (`lintStatePropagation`), and `stateEnv`/`guardEnv` when called with
+  no registry, did NOT widen.** Both are called directly by this package's
+  own pre-v0.27.0 tests with signatures that predate `*protoregistry.Files`
+  and cannot gain a parameter without rewriting every one of them, so they
+  keep `celEnvFor`'s old scope — the import closure of the one or two
+  messages in play — rather than the whole generation. In production this
+  is very unlikely to matter: A11's `tools` map and A4/A6/A7's production
+  path both come from the same `fds` either way, and a response type that
+  is not reachable through its own tool's file is not a shape any real
+  schema has. Recorded here because it is a real, if narrow, asymmetry
+  between A11 and its siblings rather than something proven harmless.
 - **`output_rules` are parsed, not evaluated.** A4 checks that each
   `output_rules[].expr` parses as CEL and nothing more. What variables an
   output rule sees is not fixed by any design document, so type-checking one

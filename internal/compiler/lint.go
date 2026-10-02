@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
 
@@ -77,6 +78,22 @@ type Options struct {
 	// descriptor set and no manifest, which is why the rules that resolve a
 	// name against the vocabulary warn under PartialSet instead of refusing.
 	Taxonomy *Taxonomy
+
+	// Files is the *protoregistry.Files celenv resolves a guard, a consent
+	// caveat or a workflow expression's type against — see lint_cel.go.
+	//
+	// nil (every caller today) means "rebuild it from the fds this call
+	// already has", which lintAgents does: internal/compile already builds
+	// one of these on the way to producing fds (compile.go:162) and discards
+	// it, and rebuilding here is cheap next to compiling the tree in the
+	// first place. Exported, like every other field here, so a caller that
+	// already has one lying around (internal/compile.Tree and Union both
+	// build one, today only to discard it) may hand it in and skip the
+	// rebuild — but no caller has to, which is why the two external callers
+	// of LintWith, internal/catalogue and internal/plugin, need no change
+	// for this unit to land. See the unit's report for the alternative this
+	// considered: threading it all the way from internal/compile instead.
+	Files *protoregistry.Files
 }
 
 // Taxonomy is a declared vocabulary, supplied by a caller that read one.
@@ -107,7 +124,7 @@ func vocabulary(fds []protoreflect.FileDescriptor, opts Options) (
 }
 
 // LintWith runs every rule this package owns (L1-L11, L19, L20 — L8 is
-// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A5, A9, A10, C1,
+// vacant, superseded — plus L12-L18, L21-L24, L26-L34, A1-A15, C1,
 // C8, C9, O1 and P1)
 // over the input set, with the supplied options.
 //
@@ -167,6 +184,17 @@ func vocabulary(fds []protoreflect.FileDescriptor, opts Options) (
 // beside A3, while the half that refuses a read of a state field not written on
 // every path errors everywhere — it finds the reads by parsing, so it needs no
 // descriptor but the state message, which is in the agent's own file.
+//
+// A12-A15 (lint_consent.go) are the standing-grants consent template rules
+// (standing-grants design §1.1): what an agent may ASK a principal to stand
+// behind it for, never a grant itself. A12 (scope ⊆ allowlist), A14
+// (description present) and A15 (no EXTERNAL_EVENT trigger) need only the
+// agent's own declaration and run everywhere, PartialSet included, beside
+// A1, A6 and A8. A13 — a writable scope declares a bound, and every caveat
+// type-checks against the request message of every tool the scope names —
+// needs the scoped tools' verb and request descriptors, so it runs beside
+// A3's resolution and A4's guard compilation and is folded into A3's own
+// PartialSet warning rather than getting a second one of its own.
 //
 // P1 (required platform packages, lint_required.go) is the catalogue-scoped
 // rule that opens a new letter, because it judges neither an agent nor a card:
